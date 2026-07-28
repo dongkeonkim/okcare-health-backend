@@ -1,0 +1,23 @@
+# macOS
+.DS_Store
+
+# IntelliJ IDEA
+.idea/
+*.iml
+
+# Gradle
+.gradle/
+build/
+
+# Java
+out/
+*.class
+
+# Local secrets
+.env
+
+# Claude Code local overrides
+.claude/settings.local.json
+
+# Runtime logs
+*.log
