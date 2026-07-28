@@ -14,9 +14,10 @@
 | 작업 | 진입점 | 기준 문서 |
 |---|---|---|
 | Java·Spring 구현 | `.claude/rules/java-main.md` (자동 로드) | [`개발_계획.md`](./docs/설계/개발_계획.md) |
-| 테스트와 검증 | `.claude/rules/java-test.md` (자동 로드), `/verify-regression` | [`기능_명세.md`](./docs/명세/기능_명세.md) |
+| 테스트 작성과 검증 | `.claude/rules/java-test.md` (자동 로드), `/verify-regression` | [`테스트_작성_가이드.md`](./docs/운영/테스트_작성_가이드.md), [`기능_명세.md`](./docs/명세/기능_명세.md) |
 | Flyway migration | `.claude/rules/flyway.md` (자동 로드) | [`개발_계획.md`](./docs/설계/개발_계획.md) |
 | 문서 작업 | `.claude/rules/docs.md` (자동 로드), `/sync-docs` | [`문서_작성_가이드.md`](./docs/운영/문서_작성_가이드.md) |
+| 코드 리뷰 | `/review-backend` | [`LLM_코드_리뷰_가이드.md`](./docs/운영/LLM_코드_리뷰_가이드.md) |
 | 경계 보고 | `/boundary-report` | [`작업_계획_가이드.md`](./docs/운영/작업_계획_가이드.md) |
 | 변경 검토와 커밋 | `/commit` | [`Git_작업_가이드.md`](./docs/운영/Git_작업_가이드.md) |
 

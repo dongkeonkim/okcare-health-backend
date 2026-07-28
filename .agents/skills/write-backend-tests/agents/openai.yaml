@@ -1,0 +1,4 @@
+interface:
+  display_name: "백엔드 테스트 작성"
+  short_description: "테스트 코드 작성을 기준 문서와 검증 스킬로 라우팅"
+  default_prompt: "$write-backend-tests를 사용해 기능 계약과 위험에 맞는 백엔드 테스트를 작성해 주세요."

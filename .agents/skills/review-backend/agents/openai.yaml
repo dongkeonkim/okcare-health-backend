@@ -1,0 +1,4 @@
+interface:
+  display_name: "백엔드 코드 리뷰"
+  short_description: "백엔드 코드 리뷰를 기준 문서와 후속 스킬로 라우팅"
+  default_prompt: "$review-backend를 사용해 현재 백엔드 변경의 코드 리뷰를 라우팅해 주세요."

@@ -9,6 +9,7 @@ description: 오케어 프로젝트의 Orca 병렬 작업을 운영 가이드와
 - Orca 탭과 모델 운영: [`오케스트레이션_가이드.md`](../../../docs/운영/오케스트레이션_가이드.md)
 - 작업 경계와 완료 보고: [`작업_계획_가이드.md`](../../../docs/운영/작업_계획_가이드.md)
 - 백엔드 구현 작업: `$develop-backend`
-- 테스트와 검증 작업: `$verify-backend`
+- 테스트 코드 작성과 수정: `$write-backend-tests`
+- 테스트 실행과 검증: `$verify-backend`
 - 문서 작업: `$maintain-project-docs`
 - Git 검토와 커밋: `$manage-git-commits`

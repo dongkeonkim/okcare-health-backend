@@ -8,5 +8,6 @@ description: 오케어 프로젝트 문서 작업을 문서별 책임과 동기�
 - 공통 원칙: [`AGENTS.md`](../../../AGENTS.md)
 - 문서별 책임, 작성과 동기화 기준: [`문서_작성_가이드.md`](../../../docs/운영/문서_작성_가이드.md)
 - 코드 구현이 필요한 변경: `$develop-backend`
-- 테스트와 검증이 필요한 변경: `$verify-backend`
+- 테스트 코드 작성과 수정이 필요한 변경: `$write-backend-tests`
+- 테스트 실행과 검증이 필요한 변경: `$verify-backend`
 - Git 검토와 커밋: `$manage-git-commits`
