@@ -1,0 +1,4 @@
+interface:
+  display_name: "Orca 작업 조율"
+  short_description: "Orca 병렬 작업을 운영 가이드와 작업별 스킬로 라우팅"
+  default_prompt: "$orchestrate-work를 사용해 작업을 적절한 Orca 탭으로 분배하고 통합해 주세요."

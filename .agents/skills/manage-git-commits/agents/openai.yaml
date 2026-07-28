@@ -1,0 +1,4 @@
+interface:
+  display_name: "Git 커밋 관리"
+  short_description: "Git 변경과 커밋을 승인 경계 메시지 기준으로 라우팅"
+  default_prompt: "$manage-git-commits를 사용해 변경을 검토하고 승인된 단위로 커밋해 주세요."

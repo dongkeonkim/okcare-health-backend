@@ -1,0 +1,4 @@
+interface:
+  display_name: "백엔드 테스트 검증"
+  short_description: "백엔드 검증을 기능 계약 테스트 전략 보고 기준으로 라우팅"
+  default_prompt: "$verify-backend를 사용해 현재 변경을 위험에 맞는 테스트로 검증해 주세요."

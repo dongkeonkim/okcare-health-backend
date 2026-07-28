@@ -1,0 +1,4 @@
+interface:
+  display_name: "백엔드 개발"
+  short_description: "백엔드 작업을 제품 기능 개발 검증 기준으로 라우팅"
+  default_prompt: "$develop-backend를 사용해 승인된 기능 계약에 맞게 백엔드를 구현해 주세요."
