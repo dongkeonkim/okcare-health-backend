@@ -1,0 +1,55 @@
+spring:
+  application:
+    name: okcare-health-backend
+
+  datasource:
+    # 기본값을 두지 않는다. 개발_계획.md §9의 "필수 설정이 없으면 기동을 실패시킨다"를
+    # placeholder 해석 실패로 강제한다.
+    url: jdbc:mysql://${DB_HOST}:${DB_PORT}/${DB_NAME}?characterEncoding=UTF-8&serverTimezone=UTC
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+
+  jpa:
+    # 스키마의 단일 소유자는 Flyway다. Hibernate는 검증만 한다.
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+    properties:
+      hibernate:
+        # 개발_계획.md §6.2: JDBC 세션 저장 타임존을 UTC로 고정한다.
+        jdbc:
+          time_zone: UTC
+
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+
+  data:
+    redis:
+      host: ${REDIS_HOST}
+      port: ${REDIS_PORT}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        # 개발_계획.md §9: Actuator는 필요한 health 정보만 공개한다.
+        include: health
+  endpoint:
+    health:
+      show-details: always
+  health:
+    db:
+      enabled: true
+    redis:
+      enabled: true
+    # 개발_계획.md §10.2가 확인 대상으로 정한 것은 MySQL과 Redis 연결이다. 디스크 경로·용량과
+    # SSL 체인은 인증 없이 공개할 이유가 없어 끈다.
+    diskspace:
+      enabled: false
+    ssl:
+      enabled: false
+
+app:
+  # 기능_명세.md §5.2의 집계 기준 타임존. 개발_계획.md §6.2에 따라 검증된 설정값으로 관리한다.
+  business-zone: Asia/Seoul
