@@ -16,17 +16,13 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 /**
- * 빈 MySQL에 Flyway migration 전체를 적용하는 검증이다.
+ * 빈 MySQL에 Flyway migration 전체를 적용하는 검증.
  *
- * <p>개발_계획.md §6.3이 이 테스트를 요구한다. 스키마 정의는 §6·§6.1·§6.2를 단일 기준으로 하며,
- * 여기서는 실제 MySQL 방언에 적용된 결과만 확인한다.
- *
- * <p>Redis 연결은 지연 생성되므로 이 테스트에서는 컨테이너를 띄우지 않고 값만 채운다. Redis
- * 연결은 경계 3의 Docker Compose healthcheck에서 확인한다.
+ * <p>스키마가 실제 MySQL 방언에 적용된 결과만 확인.
  *
  * <p>MySQL 접속 정보는 {@link ServiceConnection}이 컨테이너에서 직접 공급하므로 {@code DB_*}는
- * 필요하지 않다. Redis 설정은 application.yml의 placeholder를 해석해야 컨텍스트가 뜨므로 운영과
- * 같은 이름으로 채운다.
+ * 불필요. Redis는 연결이 지연 생성되어 컨테이너 없이도 되지만, placeholder를 해석해야 컨텍스트가
+ * 뜨므로 운영과 같은 이름으로 값만 채움.
  */
 @Testcontainers
 @SpringBootTest(properties = {"REDIS_HOST=localhost", "REDIS_PORT=6379"})
@@ -45,7 +41,8 @@ class FlywayMigrationTest {
     void appliesAllMigrations() {
         List<String> applied =
                 jdbc.queryForList(
-                        "SELECT version FROM flyway_schema_history WHERE success = 1", String.class);
+                        "SELECT version FROM flyway_schema_history WHERE success = 1",
+                        String.class);
 
         assertThat(applied).contains("1");
     }
@@ -58,9 +55,9 @@ class FlywayMigrationTest {
     }
 
     @Test
-    @DisplayName("§6.1의 UNIQUE 제약조건을 생성한다")
+    @DisplayName("UNIQUE 제약조건을 생성한다")
     void createsUniqueConstraints() {
-        // 멱등성의 최종 보장이 이 제약조건에 달려 있으므로 컬럼 구성까지 확인한다.
+        // 멱등성의 최종 보장이 이 제약조건에 달려 있으므로 컬럼 구성까지 확인.
         assertThat(indexColumns("health_activity_records", "uk_health_activity_records_identity"))
                 .containsExactly(
                         "connection_id", "metric_type", "period_start_utc", "period_end_utc");
@@ -70,7 +67,7 @@ class FlywayMigrationTest {
     }
 
     @Test
-    @DisplayName("§6.1의 조회 인덱스를 생성한다")
+    @DisplayName("소유권과 집계 조회 인덱스를 생성한다")
     void createsLookupIndexes() {
         assertThat(indexColumns("health_connections", "ix_health_connections_member_record_key"))
                 .containsExactly("member_id", "record_key");
@@ -87,9 +84,9 @@ class FlywayMigrationTest {
     }
 
     @Test
-    @DisplayName("§6.2의 숫자와 시간 타입을 사용한다")
+    @DisplayName("측정값과 시각에 요구된 정밀도를 사용한다")
     void usesRequiredColumnTypes() {
-        // 측정값 정밀도와 시각 정밀도가 어긋나면 회귀 기대값을 맞출 수 없다.
+        // 측정값 정밀도와 시각 정밀도가 어긋나면 회귀 기대값을 맞출 수 없음.
         assertThat(columnType("health_activity_records", "steps")).isEqualTo("decimal(24,12)");
         assertThat(columnType("health_activity_records", "calories")).isEqualTo("decimal(24,12)");
         assertThat(columnType("health_activity_records", "distance")).isEqualTo("decimal(24,12)");

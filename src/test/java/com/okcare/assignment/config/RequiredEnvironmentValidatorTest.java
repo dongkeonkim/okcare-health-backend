@@ -9,12 +9,10 @@ import org.junit.jupiter.api.Test;
 import org.springframework.mock.env.MockEnvironment;
 
 /**
- * 필수 설정 누락 시 기동을 실패시키는지 검증한다.
+ * 필수 설정 누락 시 기동 실패 여부 검증.
  *
- * <p>개발_계획.md §9와 §14의 첫 완료 조건에 해당한다.
- *
- * <p>이 테스트는 판단 규칙만 확인한다. {@code main}에서 리스너로 등록되어 실제로 기동을 막는지는
- * 실행 jar로 확인해야 한다. 등록이 빠져도 이 테스트는 통과하기 때문이다.
+ * <p>판단 규칙만 확인. {@code main}에서 리스너로 등록되어 실제로 기동을 막는지는 실행 jar로
+ * 확인해야 함. 등록이 빠져도 이 테스트는 통과함.
  */
 class RequiredEnvironmentValidatorTest {
 
@@ -30,7 +28,7 @@ class RequiredEnvironmentValidatorTest {
     @DisplayName("문자열 설정 REDIS_HOST가 빠지면 기동을 실패시킨다")
     void failsWhenStringPropertyMissing() {
         // Spring Boot 단독으로는 막지 못하는 경우다. REDIS_PORT(int)는 바인딩 실패로 걸리지만
-        // REDIS_HOST(String)는 리터럴 "${REDIS_HOST}"가 그대로 바인딩되어 기동이 성공한다.
+        // REDIS_HOST(String)는 리터럴 "${REDIS_HOST}"가 그대로 바인딩되어 기동이 성공해버림.
         MockEnvironment environment =
                 new MockEnvironment()
                         .withProperty("DB_HOST", "localhost")
@@ -48,7 +46,8 @@ class RequiredEnvironmentValidatorTest {
     @Test
     @DisplayName("실패 메시지에 설정 값을 담지 않는다")
     void doesNotLeakValues() {
-        MockEnvironment environment = new MockEnvironment().withProperty("DB_PASSWORD", "top-secret");
+        MockEnvironment environment =
+                new MockEnvironment().withProperty("DB_PASSWORD", "top-secret");
 
         assertThatThrownBy(() -> validator.validate(environment))
                 .isInstanceOf(IllegalStateException.class)

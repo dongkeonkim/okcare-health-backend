@@ -6,13 +6,13 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.validation.annotation.Validated;
 
 /**
- * 애플리케이션 고유 설정이다.
+ * 애플리케이션 고유 설정.
  *
- * <p>{@code businessZone}은 Daily/Monthly 집계의 기준 타임존이다. 기능_명세.md §5.2가
- * {@code Asia/Seoul}을 집계 기준으로 정했고, 개발_계획.md §6.2가 이 값을 코드 상수가 아니라
- * 검증된 설정값으로 관리하도록 요구한다.
+ * <p>{@code businessZone}은 Daily/Monthly 집계의 기준 타임존. 코드 상수로 두지 않는 이유는 집계
+ * 결과를 바꾸는 값이라 배포 없이 바로잡을 수 있어야 하기 때문.
  *
- * <p>{@link ZoneId}로 직접 바인딩하므로 잘못된 타임존 문자열은 기동 시점에 실패한다.
+ * <p>{@code String}이 아니라 {@link ZoneId}로 바인딩해 잘못된 타임존 문자열이 기동 시점에 걸리게
+ * 함. 문자열로 받으면 첫 집계 요청에서야 실패.
  */
 @Validated
 @ConfigurationProperties(prefix = "app")
