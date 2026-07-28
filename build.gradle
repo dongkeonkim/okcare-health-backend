@@ -1,6 +1,5 @@
 plugins {
-    // 개발_계획.md §4가 정한 Spring Boot 3.x 계열의 최신 패치. Maven Central의
-    // spring-boot-gradle-plugin maven-metadata.xml에서 확인해 고정했다.
+    // Maven Central의 maven-metadata.xml에서 확인한 3.x 최신 패치로 고정.
     id 'org.springframework.boot' version '3.5.16'
     id 'io.spring.dependency-management' version '1.1.7'
     id 'java'
@@ -10,7 +9,7 @@ group = 'com.okcare'
 version = '0.0.1-SNAPSHOT'
 
 java {
-    // 과제_원문.md가 지정한 Java 17. toolchain으로 고정해 로컬 JDK 차이와 무관하게 빌드한다.
+    // toolchain으로 고정해 로컬에 설치된 JDK와 무관하게 같은 결과로 빌드.
     toolchain {
         languageVersion = JavaLanguageVersion.of(17)
     }
@@ -24,25 +23,28 @@ dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-web'
     implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
     implementation 'org.springframework.boot:spring-boot-starter-data-redis'
-    // 개발_계획.md §9의 @ConfigurationProperties + @Validated 설정 검증에 필요하다.
+    // @ConfigurationProperties를 @Validated로 검증하는 데 필요.
     implementation 'org.springframework.boot:spring-boot-starter-validation'
     implementation 'org.springframework.boot:spring-boot-starter-actuator'
 
+    // 전이 의존성이 없는 단일 아티팩트. spring-boot-starter-security와 달리 서블릿 필터
+    // 체인을 구성하지 않아 actuator health가 열린 채로 유지됨. 스타터는 인증 경로가 생길 때 추가.
+    implementation 'org.springframework.security:spring-security-crypto'
+
     implementation 'org.flywaydb:flyway-core'
-    // MySQL 8은 Flyway가 별도 방언 모듈을 요구한다.
+    // MySQL 8은 Flyway가 별도 방언 모듈을 요구.
     implementation 'org.flywaydb:flyway-mysql'
 
     runtimeOnly 'com.mysql:mysql-connector-j'
 
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
-    // 개발_계획.md §6.3의 "빈 MySQL에 전체 migration 적용" 검증에 사용한다.
+    // 빈 MySQL에 migration 전체를 적용하는 검증에 사용.
     testImplementation 'org.springframework.boot:spring-boot-testcontainers'
     testImplementation 'org.testcontainers:junit-jupiter'
     testImplementation 'org.testcontainers:mysql'
 }
 
-// Spring Security와 JWT, Spring REST Docs 의존성은 인증을 구현하는 경계 4에서 추가한다.
-// 경계 3의 검증 대상은 개발_계획.md §12 기준으로 빌드와 세 컨테이너 healthcheck다.
+// JWT와 Spring REST Docs 의존성은 로그인과 API 문서를 구현할 때 추가.
 
 tasks.named('test') {
     useJUnitPlatform()
