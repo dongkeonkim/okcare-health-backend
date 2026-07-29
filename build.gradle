@@ -19,6 +19,10 @@ repositories {
     mavenCentral()
 }
 
+ext {
+    jjwtVersion = '0.13.0'
+}
+
 dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-web'
     implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
@@ -28,8 +32,15 @@ dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-actuator'
 
     // 전이 의존성이 없는 단일 아티팩트. spring-boot-starter-security와 달리 서블릿 필터
-    // 체인을 구성하지 않아 actuator health가 열린 채로 유지됨. 스타터는 인증 경로가 생길 때 추가.
+    // 체인을 구성하지 않아 actuator health가 열린 채로 유지됨. 스타터는 Authorization 헤더를
+    // 검증하는 경로가 생길 때 추가. 로그인은 자격 증명을 본문으로 받으므로 필터 체인이 없어도 됨.
     implementation 'org.springframework.security:spring-security-crypto'
+
+    // Spring Boot의 dependency-management 대상이 아니라 버전을 직접 고정. 세 아티팩트의 버전이
+    // 어긋나면 컴파일은 통과하고 런타임에 ServiceLoader가 구현을 찾지 못해 발급이 실패함.
+    implementation "io.jsonwebtoken:jjwt-api:${jjwtVersion}"
+    runtimeOnly "io.jsonwebtoken:jjwt-impl:${jjwtVersion}"
+    runtimeOnly "io.jsonwebtoken:jjwt-jackson:${jjwtVersion}"
 
     implementation 'org.flywaydb:flyway-core'
     // MySQL 8은 Flyway가 별도 방언 모듈을 요구.
@@ -44,7 +55,7 @@ dependencies {
     testImplementation 'org.testcontainers:mysql'
 }
 
-// JWT와 Spring REST Docs 의존성은 로그인과 API 문서를 구현할 때 추가.
+// Spring REST Docs 의존성은 API 문서 경계에서 추가.
 
 tasks.named('test') {
     useJUnitPlatform()

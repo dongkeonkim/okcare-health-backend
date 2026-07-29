@@ -5,6 +5,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.okcare.assignment.TestSecrets;
 import com.okcare.assignment.common.error.BusinessException;
 import com.okcare.assignment.common.error.ErrorCode;
 import com.okcare.assignment.member.application.MemberSignupService;
@@ -34,11 +35,18 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 /**
  * 인메모리 DB로 대체하면 제약 위반 예외 타입과 방언이 달라져 검증 대상 자체가 사라짐.
  *
- * <p>Redis는 회원가입 경로에서 쓰지 않으므로 컨테이너 없이 설정값만 채움.
+ * <p>Redis는 회원가입 경로에서 쓰지 않으므로 컨테이너 없이 설정값만 채움. {@code JWT_SECRET}도
+ * 마찬가지로 값만 채움. 서명 키는 경로와 무관하지만 안전 기준을 통과하지 못하면 컨텍스트 자체가
+ * 뜨지 않음.
  */
 @Testcontainers
 @AutoConfigureMockMvc
-@SpringBootTest(properties = {"REDIS_HOST=localhost", "REDIS_PORT=6379"})
+@SpringBootTest(
+        properties = {
+            "REDIS_HOST=localhost",
+            "REDIS_PORT=6379",
+            "JWT_SECRET=" + TestSecrets.JWT_SECRET
+        })
 class MemberSignupIntegrationTest {
 
     @Container

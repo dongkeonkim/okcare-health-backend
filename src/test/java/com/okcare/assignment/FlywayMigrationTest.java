@@ -25,7 +25,12 @@ import org.testcontainers.junit.jupiter.Testcontainers;
  * 뜨므로 운영과 같은 이름으로 값만 채움.
  */
 @Testcontainers
-@SpringBootTest(properties = {"REDIS_HOST=localhost", "REDIS_PORT=6379"})
+@SpringBootTest(
+        properties = {
+            "REDIS_HOST=localhost",
+            "REDIS_PORT=6379",
+            "JWT_SECRET=" + TestSecrets.JWT_SECRET
+        })
 class FlywayMigrationTest {
 
     @Container

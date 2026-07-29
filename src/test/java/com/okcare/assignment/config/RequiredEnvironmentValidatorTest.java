@@ -44,6 +44,26 @@ class RequiredEnvironmentValidatorTest {
     }
 
     @Test
+    @DisplayName("JWT_SECRET이 빠지면 기동을 실패시킨다")
+    void failsWhenJwtSecretMissing() {
+        // 서명 키 없이 기동하면 로그인 요청에서야 실패하고, 그 시점에는 원인이 설정 누락임을
+        // 알기 어려움. REDIS_HOST와 같은 이유로 여기서 차단.
+        MockEnvironment environment =
+                new MockEnvironment()
+                        .withProperty("DB_HOST", "localhost")
+                        .withProperty("DB_PORT", "3306")
+                        .withProperty("DB_NAME", "okcare")
+                        .withProperty("DB_USERNAME", "okcare")
+                        .withProperty("DB_PASSWORD", "secret")
+                        .withProperty("REDIS_HOST", "localhost")
+                        .withProperty("REDIS_PORT", "6379");
+
+        assertThatThrownBy(() -> validator.validate(environment))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("JWT_SECRET");
+    }
+
+    @Test
     @DisplayName("실패 메시지에 설정 값을 담지 않는다")
     void doesNotLeakValues() {
         MockEnvironment environment =
@@ -62,6 +82,7 @@ class RequiredEnvironmentValidatorTest {
                 .withProperty("DB_USERNAME", "okcare")
                 .withProperty("DB_PASSWORD", "secret")
                 .withProperty("REDIS_HOST", "localhost")
-                .withProperty("REDIS_PORT", "6379");
+                .withProperty("REDIS_PORT", "6379")
+                .withProperty("JWT_SECRET", "irrelevant");
     }
 }

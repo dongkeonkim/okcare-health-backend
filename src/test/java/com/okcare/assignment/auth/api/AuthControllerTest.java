@@ -11,6 +11,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.okcare.assignment.auth.application.LoginService;
+import com.okcare.assignment.auth.domain.IssuedTokens;
 import com.okcare.assignment.common.error.BusinessException;
 import com.okcare.assignment.common.error.ErrorCode;
 import com.okcare.assignment.common.error.GlobalExceptionHandler;
@@ -45,9 +47,21 @@ class AuthControllerTest {
             }
             """;
 
+    private static final String TOKEN_ID = "11111111-1111-1111-1111-111111111111";
+
+    private static final String LOGIN_BODY =
+            """
+            {
+              "email": "gildong@example.com",
+              "password": "StrongPassword1"
+            }
+            """;
+
     @Autowired private MockMvc mockMvc;
 
     @MockitoBean private MemberSignupService memberSignupService;
+
+    @MockitoBean private LoginService loginService;
 
     @Test
     @DisplayName("가입에 성공하면 201과 회원 정보를 반환한다")
@@ -220,6 +234,72 @@ class AuthControllerTest {
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON));
     }
 
+    @Test
+    @DisplayName("로그인에 성공하면 200과 토큰 쌍을 반환한다")
+    void returnsTokensOnLogin() throws Exception {
+        givenLoginReturnsTokens();
+
+        login(LOGIN_BODY)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.tokenType").value("Bearer"))
+                .andExpect(jsonPath("$.accessToken").value("access.token.value"))
+                .andExpect(jsonPath("$.accessTokenExpiresIn").value(900))
+                .andExpect(jsonPath("$.refreshToken").value("refresh.token.value"))
+                .andExpect(jsonPath("$.refreshTokenExpiresIn").value(1_209_600));
+    }
+
+    @Test
+    @DisplayName("로그인 응답에 비밀번호와 저장 키 식별자를 담지 않는다")
+    void loginResponseCarriesOnlyContractFields() throws Exception {
+        givenLoginReturnsTokens();
+
+        String body = login(LOGIN_BODY).andReturn().getResponse().getContentAsString();
+
+        assertThat(body).doesNotContain("StrongPassword1");
+        // 응답 계약은 다섯 필드뿐. tokenId가 새 필드로 새어 나가면 계약이 조용히 넓어짐.
+        assertThat(body).doesNotContain(TOKEN_ID);
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @DisplayName("로그인 필수 필드가 없으면 400을 반환하고 인증을 시도하지 않는다")
+    @CsvSource({"이메일 누락, email", "비밀번호 누락, password"})
+    void rejectsMissingLoginField(String label, String field) throws Exception {
+        String body = replaceField(LOGIN_BODY, field, "");
+
+        login(body)
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"))
+                .andExpect(fieldErrorOn(field));
+
+        verify(loginService, never()).login(any(), any());
+    }
+
+    @Test
+    @DisplayName("자격 증명이 틀리면 401을 반환하고 필드 오류를 붙이지 않는다")
+    void returnsUnauthorizedOnInvalidCredentials() throws Exception {
+        givenLoginRejectsCredentials();
+
+        login(LOGIN_BODY)
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("AUTH_CREDENTIALS_INVALID"))
+                // 필드 오류가 붙으면 이메일과 비밀번호 중 무엇이 틀렸는지 알려 주게 됨.
+                .andExpect(jsonPath("$.fieldErrors").isEmpty());
+    }
+
+    @Test
+    @DisplayName("이메일 형식이 아니어도 400이 아니라 인증 결과로 판정한다")
+    void doesNotValidateLoginEmailFormat() throws Exception {
+        // 로그인에 형식 제약을 붙이면 가입 규칙을 강화한 뒤 그 전에 만든 계정이 400으로 막히고,
+        // 400과 401의 차이가 이메일 형식이 유효한지 알려 주는 신호가 됨.
+        givenLoginRejectsCredentials();
+
+        String body = replaceField(LOGIN_BODY, "email", "not-an-email");
+
+        login(body).andExpect(status().isUnauthorized());
+
+        verify(loginService).login(eq("not-an-email"), any());
+    }
+
     private static String replaceField(String body, String field, String value) {
         return body.replaceAll(
                 "\"" + field + "\"\\s*:\\s*\"[^\"]*\"", "\"" + field + "\": \"" + value + "\"");
@@ -228,6 +308,27 @@ class AuthControllerTest {
     private ResultActions signup(String body) throws Exception {
         return mockMvc.perform(
                 post("/api/v1/auth/signup").contentType(MediaType.APPLICATION_JSON).content(body));
+    }
+
+    private ResultActions login(String body) throws Exception {
+        return mockMvc.perform(
+                post("/api/v1/auth/login").contentType(MediaType.APPLICATION_JSON).content(body));
+    }
+
+    private void givenLoginReturnsTokens() {
+        given(loginService.login(any(), any()))
+                .willReturn(
+                        new IssuedTokens(
+                                TOKEN_ID,
+                                "access.token.value",
+                                900,
+                                "refresh.token.value",
+                                1_209_600));
+    }
+
+    private void givenLoginRejectsCredentials() {
+        given(loginService.login(any(), any()))
+                .willThrow(new BusinessException(ErrorCode.AUTH_CREDENTIALS_INVALID));
     }
 
     private void givenSignupReturnsMember() {

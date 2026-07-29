@@ -31,7 +31,8 @@ public class RequiredEnvironmentValidator
                     "DB_USERNAME",
                     "DB_PASSWORD",
                     "REDIS_HOST",
-                    "REDIS_PORT");
+                    "REDIS_PORT",
+                    "JWT_SECRET");
 
     @Override
     public void onApplicationEvent(ApplicationEnvironmentPreparedEvent event) {

@@ -52,3 +52,8 @@ management:
 app:
   # Daily/Monthly 집계 기준 타임존.
   business-zone: Asia/Seoul
+
+  jwt:
+    # Base64로 인코딩한 값. 디코딩 후 32바이트 미만이거나 Base64가 아니면 기동이 멈춤.
+    # 토큰 유효시간은 응답 계약값이라 설정으로 열지 않고 코드 상수로 고정.
+    secret: ${JWT_SECRET}
