@@ -1,6 +1,7 @@
 package com.okcare.assignment.auth.infrastructure;
 
 import com.okcare.assignment.auth.domain.IssuedTokens;
+import com.okcare.assignment.auth.domain.RefreshTokenClaims;
 import com.okcare.assignment.common.error.BusinessException;
 import com.okcare.assignment.common.error.ErrorCode;
 import java.nio.charset.StandardCharsets;
@@ -8,8 +9,10 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
 import java.util.HexFormat;
+import java.util.List;
 import org.springframework.dao.DataAccessException;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.script.RedisScript;
 import org.springframework.stereotype.Component;
 
 /** 리프레시 토큰 저장소. 평문이 아니라 SHA-256 해시만 보관. */
@@ -17,6 +20,26 @@ import org.springframework.stereotype.Component;
 public class RefreshTokenStore {
 
     private static final String KEY_PREFIX = "auth:refresh:";
+
+    /**
+     * 대조, 폐기와 저장을 한 원자 단위로 묶는 스크립트.
+     *
+     * <p>키가 없으면 {@code GET}이 Lua {@code false}를 돌려주므로 문자열 비교가 실패하고 0으로
+     * 끝남. 별도의 존재 검사가 필요하지 않음.
+     */
+    private static final RedisScript<Long> ROTATE_SCRIPT =
+            RedisScript.of(
+                    """
+                    if redis.call('GET', KEYS[1]) ~= ARGV[1] then
+                      return 0
+                    end
+                    redis.call('DEL', KEYS[1])
+                    redis.call('SET', KEYS[2], ARGV[2], 'EX', ARGV[3])
+                    return 1
+                    """,
+                    Long.class);
+
+    private static final Long SWAPPED = 1L;
 
     private final StringRedisTemplate redisTemplate;
 
@@ -42,6 +65,42 @@ public class RefreshTokenStore {
             // 저장하지 못한 토큰을 반환하면 클라이언트는 14일 동안 쓸 수 있다고 믿지만 첫
             // 재발급에서 거절됨. 그 상태를 만들지 않기 위해 로그인 자체를 실패시킴.
             throw new BusinessException(ErrorCode.AUTH_TOKEN_STORE_FAILED);
+        }
+    }
+
+    /**
+     * 리프레시 토큰 교체.
+     *
+     * <p>자바에서 {@code GET}으로 대조한 뒤 {@code DEL}과 {@code SET}을 부르지 않음. 같은 토큰으로
+     * 두 요청이 동시에 들어오면 양쪽이 대조를 통과해 리프레시 토큰이 하나에서 둘로 늘어남.
+     * {@code GETDEL}로 좁힐 수도 있지만 그러면 폐기와 저장 사이에서 죽을 때 사용자가 세션을 잃음.
+     *
+     * <p>함정: Redis Cluster에서는 구·신 키의 {@code tokenId}가 달라 슬롯이 갈리고 스크립트가
+     * CROSSSLOT으로 실패. 단일 노드 전제이며, 옮기려면 키에 해시 태그를 넣어야 함.
+     *
+     * @throws BusinessException 제시된 토큰이 저장된 값과 다르거나 이미 폐기됐을 때, 또는 교체를
+     *     완료할 수 없을 때
+     */
+    public void rotate(RefreshTokenClaims claims, String presentedToken, IssuedTokens newTokens) {
+        Long swapped;
+
+        try {
+            swapped =
+                    redisTemplate.execute(
+                            ROTATE_SCRIPT,
+                            List.of(
+                                    key(claims.memberId(), claims.tokenId()),
+                                    key(claims.memberId(), newTokens.tokenId())),
+                            hash(presentedToken),
+                            hash(newTokens.refreshToken()),
+                            Long.toString(newTokens.refreshTokenExpiresIn()));
+        } catch (DataAccessException e) {
+            throw new BusinessException(ErrorCode.AUTH_TOKEN_ROTATE_FAILED);
+        }
+
+        // 구 키가 없거나 저장된 해시가 다른 경우. 이미 회전됐거나 폐기된 토큰의 재사용.
+        if (!SWAPPED.equals(swapped)) {
+            throw new BusinessException(ErrorCode.AUTH_REFRESH_TOKEN_INVALID);
         }
     }
 

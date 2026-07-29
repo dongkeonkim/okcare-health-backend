@@ -1,8 +1,13 @@
 package com.okcare.assignment.auth.infrastructure;
 
 import com.okcare.assignment.auth.domain.IssuedTokens;
+import com.okcare.assignment.auth.domain.RefreshTokenClaims;
+import com.okcare.assignment.common.error.BusinessException;
+import com.okcare.assignment.common.error.ErrorCode;
 import com.okcare.assignment.config.JwtProperties;
+import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.JwtBuilder;
+import io.jsonwebtoken.JwtException;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
 import java.time.Clock;
@@ -57,6 +62,42 @@ public class JwtTokenProvider {
                 ACCESS_TOKEN_TTL.toSeconds(),
                 sign(subject, issuedAt, REFRESH_TOKEN_TTL, tokenId),
                 REFRESH_TOKEN_TTL.toSeconds());
+    }
+
+    /**
+     * 리프레시 토큰 검증 후 저장 키를 가리키는 값 반환.
+     *
+     * <p>{@code parseSignedClaims}가 {@code alg: none} 거부 수단. 서명 없는 토큰은 JWS가 아니라
+     * 이 호출에서 걸림. 서명을 요구하지 않는 파싱 메서드로 바꾸면 위조 토큰이 통과.
+     *
+     * <p>파서에도 발급과 같은 {@link Clock}을 넘김. 시스템 시각을 쓰면 만료 검증을 테스트에서
+     * 고정할 수 없음.
+     *
+     * @throws BusinessException 서명·만료 검증에 실패했거나 {@code jti}가 없을 때
+     */
+    public RefreshTokenClaims parseRefreshToken(String token) {
+        try {
+            Claims claims =
+                    Jwts.parser()
+                            .verifyWith(signingKey)
+                            .clock(() -> Date.from(clock.instant()))
+                            .build()
+                            .parseSignedClaims(token)
+                            .getPayload();
+
+            // jti가 없으면 액세스 토큰. 가리킬 저장 키가 없으므로 재발급 입력으로 받지 않음.
+            if (claims.getId() == null) {
+                throw new BusinessException(ErrorCode.AUTH_REFRESH_TOKEN_INVALID);
+            }
+
+            // parseLong의 NumberFormatException은 IllegalArgumentException이라 아래 catch가
+            // 함께 받음. subject를 읽을 수 없는 토큰도 쓸 수 없는 토큰.
+            return new RefreshTokenClaims(Long.parseLong(claims.getSubject()), claims.getId());
+        } catch (JwtException | IllegalArgumentException e) {
+            // 예외 종류를 오류 코드로 옮기지 않음. 만료와 위조를 구분해 응답하면 그 토큰이 한때
+            // 유효했는지 알려 주게 됨.
+            throw new BusinessException(ErrorCode.AUTH_REFRESH_TOKEN_INVALID);
+        }
     }
 
     /**

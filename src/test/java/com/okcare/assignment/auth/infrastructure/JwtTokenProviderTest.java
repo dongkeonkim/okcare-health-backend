@@ -4,6 +4,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.okcare.assignment.auth.domain.IssuedTokens;
+import com.okcare.assignment.auth.domain.RefreshTokenClaims;
+import com.okcare.assignment.common.error.BusinessException;
+import com.okcare.assignment.common.error.ErrorCode;
 import com.okcare.assignment.config.JwtProperties;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
@@ -16,6 +19,7 @@ import java.util.Base64;
 import java.util.Date;
 import javax.crypto.SecretKey;
 import javax.crypto.spec.SecretKeySpec;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -86,6 +90,83 @@ class JwtTokenProviderTest {
     }
 
     @Test
+    @DisplayName("발급한 리프레시 토큰을 되읽어 회원 식별자와 tokenId를 복원한다")
+    void parsesOwnRefreshToken() {
+        IssuedTokens tokens = provider.issue(42L);
+
+        RefreshTokenClaims claims = provider.parseRefreshToken(tokens.refreshToken());
+
+        assertThat(claims.memberId()).isEqualTo(42L);
+        assertThat(claims.tokenId()).isEqualTo(tokens.tokenId());
+    }
+
+    @Test
+    @DisplayName("만료된 리프레시 토큰을 거부한다")
+    void rejectsExpiredRefreshToken() {
+        // 발급 15일 뒤 시점의 파서로 읽음. 서명은 같은 키라 통과하고 exp만 걸리므로 만료 검증
+        // 외의 이유로 거부될 여지가 없음.
+        String token = provider.issue(42L).refreshToken();
+
+        JwtTokenProvider later = providerAt(ISSUED_AT.plus(Duration.ofDays(15)));
+
+        assertThatRejects(() -> later.parseRefreshToken(token));
+    }
+
+    @Test
+    @DisplayName("다른 secret으로 서명된 토큰을 거부한다")
+    void rejectsForeignSignature() {
+        String forged =
+                Jwts.builder()
+                        .subject("42")
+                        .id("forged-token-id")
+                        .expiration(Date.from(ISSUED_AT.plus(Duration.ofDays(14))))
+                        .signWith(keyOf(base64("another-secret-that-is-32bytes!!")), Jwts.SIG.HS256)
+                        .compact();
+
+        assertThatRejects(() -> provider.parseRefreshToken(forged));
+    }
+
+    @Test
+    @DisplayName("서명이 없는 alg none 토큰을 거부한다")
+    void rejectsUnsignedToken() {
+        // 파싱 메서드를 서명을 요구하지 않는 것으로 바꾸면 누구나 만든 토큰으로 재발급이 뚫림.
+        String unsigned =
+                Jwts.builder()
+                        .subject("42")
+                        .id("unsigned-token-id")
+                        .expiration(Date.from(ISSUED_AT.plus(Duration.ofDays(14))))
+                        .compact();
+
+        assertThatRejects(() -> provider.parseRefreshToken(unsigned));
+    }
+
+    @Test
+    @DisplayName("subject가 숫자가 아닌 토큰을 500이 아니라 401로 거부한다")
+    void rejectsNonNumericSubject() {
+        // 우리 키로 서명됐으므로 서명·만료 검증을 통과하고 subject 파싱에서만 걸림.
+        // NumberFormatException이 catch 밖으로 새면 401이 아니라 500이 됨.
+        String token =
+                Jwts.builder()
+                        .subject("not-a-number")
+                        .id("some-token-id")
+                        .expiration(Date.from(ISSUED_AT.plus(Duration.ofDays(14))))
+                        .signWith(signingKey(), Jwts.SIG.HS256)
+                        .compact();
+
+        assertThatRejects(() -> provider.parseRefreshToken(token));
+    }
+
+    @Test
+    @DisplayName("jti가 없는 액세스 토큰은 재발급 입력으로 받지 않는다")
+    void rejectsAccessTokenAsRefreshToken() {
+        // 액세스 토큰도 같은 키로 서명되므로 서명·만료 검증만으로는 통과. jti 검사가 없으면
+        // 15분짜리 토큰으로 14일 세션을 계속 갱신할 수 있음.
+        String accessToken = provider.issue(42L).accessToken();
+
+        assertThatRejects(() -> provider.parseRefreshToken(accessToken));
+    }
+
+    @Test
     @DisplayName("secret이 32바이트 미만이면 기동 시점에 실패한다")
     void rejectsSecretShorterThan256Bits() {
         assertThatThrownBy(() -> providerWith(SHORT_SECRET))
@@ -115,6 +196,18 @@ class JwtTokenProviderTest {
                 new JwtProperties(secret), Clock.fixed(ISSUED_AT, ZoneOffset.UTC));
     }
 
+    private static JwtTokenProvider providerAt(Instant now) {
+        return new JwtTokenProvider(new JwtProperties(SECRET), Clock.fixed(now, ZoneOffset.UTC));
+    }
+
+    /** 거부 사유를 코드로 구분하지 않는 것이 계약이므로 모든 실패를 같은 코드로 단언. */
+    private static void assertThatRejects(ThrowingCallable parse) {
+        assertThatThrownBy(parse)
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).errorCode())
+                .isEqualTo(ErrorCode.AUTH_REFRESH_TOKEN_INVALID);
+    }
+
     /** 서명 검증까지 통과해야 파싱되므로 설정한 secret으로 서명했는지도 함께 확인. */
     private static Claims parse(String token) {
         return Jwts.parser()
@@ -127,7 +220,11 @@ class JwtTokenProviderTest {
     }
 
     private static SecretKey signingKey() {
-        return new SecretKeySpec(Base64.getDecoder().decode(SECRET), "HmacSHA256");
+        return keyOf(SECRET);
+    }
+
+    private static SecretKey keyOf(String base64Secret) {
+        return new SecretKeySpec(Base64.getDecoder().decode(base64Secret), "HmacSHA256");
     }
 
     private static String base64(String raw) {

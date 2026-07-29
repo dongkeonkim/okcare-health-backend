@@ -3,21 +3,29 @@ package com.okcare.assignment.auth.infrastructure;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.mock;
+import static org.mockito.BDDMockito.times;
 import static org.mockito.BDDMockito.verify;
 import static org.mockito.BDDMockito.willThrow;
 
 import com.okcare.assignment.auth.domain.IssuedTokens;
+import com.okcare.assignment.auth.domain.RefreshTokenClaims;
 import com.okcare.assignment.common.error.BusinessException;
 import com.okcare.assignment.common.error.ErrorCode;
 import java.time.Duration;
+import java.util.List;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.data.redis.RedisConnectionFailureException;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
+import org.springframework.data.redis.core.script.RedisScript;
 
 /**
  * Redis를 대역으로 두는 이유는 저장 형식과 장애 변환만 확인하기 때문. 실제 TTL 동작과 키 존재는
@@ -38,6 +46,17 @@ class RefreshTokenStoreTest {
 
     private static final IssuedTokens TOKENS =
             new IssuedTokens("token-id", "access", 900, REFRESH_TOKEN, 1_209_600);
+
+    private static final String NEW_REFRESH_TOKEN = "new.payload.signature";
+
+    /** {@code NEW_REFRESH_TOKEN}의 SHA-256 hex. 위와 같은 이유로 따로 계산한 값. */
+    private static final String EXPECTED_NEW_HASH =
+            "f6427aa94c12b98d02ccbaa6c7fafde2ba40fbfc56aa2720add1117a9d25a1bc";
+
+    private static final IssuedTokens NEW_TOKENS =
+            new IssuedTokens("new-token-id", "new-access", 900, NEW_REFRESH_TOKEN, 1_209_600);
+
+    private static final RefreshTokenClaims CLAIMS = new RefreshTokenClaims(7L, "token-id");
 
     @SuppressWarnings("unchecked")
     private final ValueOperations<String, String> valueOperations = mock(ValueOperations.class);
@@ -69,9 +88,73 @@ class RefreshTokenStoreTest {
                 .given(valueOperations)
                 .set(anyString(), anyString(), any(Duration.class));
 
-        assertThatThrownBy(() -> store.save(7L, TOKENS))
+        assertThatFails(() -> store.save(7L, TOKENS), ErrorCode.AUTH_TOKEN_STORE_FAILED);
+    }
+
+    @Test
+    @DisplayName("교체는 대조·폐기·저장을 한 스크립트에 담아 한 번만 실행한다")
+    @SuppressWarnings("unchecked")
+    void rotateRunsOneScriptCoveringAllThreeSteps() {
+        givenScriptReturns(1L);
+
+        store.rotate(CLAIMS, REFRESH_TOKEN, NEW_TOKENS);
+
+        ArgumentCaptor<RedisScript<Long>> script = ArgumentCaptor.forClass(RedisScript.class);
+        ArgumentCaptor<List<String>> keys = ArgumentCaptor.forClass(List.class);
+        verify(redisTemplate, times(1))
+                .execute(
+                        script.capture(),
+                        keys.capture(),
+                        eq(EXPECTED_HASH),
+                        eq(EXPECTED_NEW_HASH),
+                        eq("1209600"));
+
+        assertThat(keys.getValue())
+                .containsExactly("auth:refresh:7:token-id", "auth:refresh:7:new-token-id");
+
+        // 세 연산이 한 스크립트 안에 있어야 원자적. 대조를 자바로 끌어올리고 DEL·SET만 남기면
+        // 같은 토큰으로 동시에 들어온 두 요청이 모두 통과함. 통합 테스트의 동시 요청은 스레드
+        // 스케줄에 좌우되므로 그 회귀를 확실히 잡지 못하고, 구조를 고정하는 곳이 여기뿐임.
+        assertThat(script.getValue().getScriptAsString())
+                .contains("GET", "DEL", "SET", "EX")
+                .contains("KEYS[1]", "KEYS[2]", "ARGV[1]", "ARGV[2]", "ARGV[3]");
+    }
+
+    @Test
+    @DisplayName("스크립트가 교체하지 않았다고 알리면 폐기된 토큰으로 처리한다")
+    void translatesRotateMismatch() {
+        // 저장된 해시와 다르거나 키가 이미 사라진 경우. 회전된 토큰의 재사용이 도달하는 자리.
+        givenScriptReturns(0L);
+
+        assertThatFails(
+                () -> store.rotate(CLAIMS, REFRESH_TOKEN, NEW_TOKENS),
+                ErrorCode.AUTH_REFRESH_TOKEN_INVALID);
+    }
+
+    @Test
+    @DisplayName("Redis 장애로 교체를 완료하지 못하면 로그인 저장 실패와 다른 코드로 바꾼다")
+    @SuppressWarnings("unchecked")
+    void translatesRotateFailure() {
+        // 상태와 메시지가 같아도 코드를 나눠야 로그에서 로그인 저장 실패와 구분됨.
+        willThrow(new RedisConnectionFailureException("연결 실패"))
+                .given(redisTemplate)
+                .execute(any(RedisScript.class), anyList(), any(), any(), any());
+
+        assertThatFails(
+                () -> store.rotate(CLAIMS, REFRESH_TOKEN, NEW_TOKENS),
+                ErrorCode.AUTH_TOKEN_ROTATE_FAILED);
+    }
+
+    @SuppressWarnings("unchecked")
+    private void givenScriptReturns(Long result) {
+        given(redisTemplate.execute(any(RedisScript.class), anyList(), any(), any(), any()))
+                .willReturn(result);
+    }
+
+    private static void assertThatFails(ThrowingCallable call, ErrorCode expected) {
+        assertThatThrownBy(call)
                 .isInstanceOf(BusinessException.class)
                 .extracting(e -> ((BusinessException) e).errorCode())
-                .isEqualTo(ErrorCode.AUTH_TOKEN_STORE_FAILED);
+                .isEqualTo(expected);
     }
 }

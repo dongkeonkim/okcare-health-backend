@@ -1,6 +1,7 @@
 package com.okcare.assignment.auth.api;
 
 import com.okcare.assignment.auth.application.LoginService;
+import com.okcare.assignment.auth.application.TokenRefreshService;
 import com.okcare.assignment.member.application.MemberSignupService;
 import com.okcare.assignment.member.domain.Member;
 import jakarta.validation.Valid;
@@ -17,10 +18,15 @@ public class AuthController {
 
     private final MemberSignupService memberSignupService;
     private final LoginService loginService;
+    private final TokenRefreshService tokenRefreshService;
 
-    public AuthController(MemberSignupService memberSignupService, LoginService loginService) {
+    public AuthController(
+            MemberSignupService memberSignupService,
+            LoginService loginService,
+            TokenRefreshService tokenRefreshService) {
         this.memberSignupService = memberSignupService;
         this.loginService = loginService;
+        this.tokenRefreshService = tokenRefreshService;
     }
 
     @PostMapping("/signup")
@@ -37,10 +43,18 @@ public class AuthController {
     }
 
     @PostMapping("/login")
-    public LoginResponse login(
+    public TokenResponse login(
             @Valid
             @RequestBody
             LoginRequest request) {
-        return LoginResponse.from(loginService.login(request.email(), request.password()));
+        return TokenResponse.from(loginService.login(request.email(), request.password()));
+    }
+
+    @PostMapping("/refresh")
+    public TokenResponse refresh(
+            @Valid
+            @RequestBody
+            RefreshRequest request) {
+        return TokenResponse.from(tokenRefreshService.refresh(request.refreshToken()));
     }
 }

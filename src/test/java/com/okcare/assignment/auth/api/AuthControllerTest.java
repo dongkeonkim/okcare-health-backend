@@ -12,6 +12,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.okcare.assignment.auth.application.LoginService;
+import com.okcare.assignment.auth.application.TokenRefreshService;
 import com.okcare.assignment.auth.domain.IssuedTokens;
 import com.okcare.assignment.common.error.BusinessException;
 import com.okcare.assignment.common.error.ErrorCode;
@@ -57,11 +58,15 @@ class AuthControllerTest {
             }
             """;
 
+    private static final String REFRESH_BODY = "{\"refreshToken\": \"refresh.token.value\"}";
+
     @Autowired private MockMvc mockMvc;
 
     @MockitoBean private MemberSignupService memberSignupService;
 
     @MockitoBean private LoginService loginService;
+
+    @MockitoBean private TokenRefreshService tokenRefreshService;
 
     @Test
     @DisplayName("가입에 성공하면 201과 회원 정보를 반환한다")
@@ -300,6 +305,55 @@ class AuthControllerTest {
         verify(loginService).login(eq("not-an-email"), any());
     }
 
+    @Test
+    @DisplayName("재발급에 성공하면 200과 로그인과 같은 형식의 토큰 쌍을 반환한다")
+    void returnsTokensOnRefresh() throws Exception {
+        // 두 엔드포인트가 응답 계약을 공유하므로 한쪽만 필드가 어긋나는 회귀 검출용.
+        given(tokenRefreshService.refresh(any())).willReturn(issuedTokens());
+
+        refresh(REFRESH_BODY)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.tokenType").value("Bearer"))
+                .andExpect(jsonPath("$.accessToken").value("access.token.value"))
+                .andExpect(jsonPath("$.accessTokenExpiresIn").value(900))
+                .andExpect(jsonPath("$.refreshToken").value("refresh.token.value"))
+                .andExpect(jsonPath("$.refreshTokenExpiresIn").value(1_209_600));
+    }
+
+    @Test
+    @DisplayName("리프레시 토큰이 없으면 400을 반환하고 교체를 시도하지 않는다")
+    void rejectsMissingRefreshToken() throws Exception {
+        refresh("{\"refreshToken\": \"\"}")
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"))
+                .andExpect(fieldErrorOn("refreshToken"));
+
+        verify(tokenRefreshService, never()).refresh(any());
+    }
+
+    @Test
+    @DisplayName("토큰이 유효하지 않으면 401을 반환하고 필드 오류를 붙이지 않는다")
+    void returnsUnauthorizedOnInvalidRefreshToken() throws Exception {
+        given(tokenRefreshService.refresh(any()))
+                .willThrow(new BusinessException(ErrorCode.AUTH_REFRESH_TOKEN_INVALID));
+
+        refresh(REFRESH_BODY)
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("AUTH_REFRESH_TOKEN_INVALID"))
+                .andExpect(jsonPath("$.fieldErrors").isEmpty());
+    }
+
+    @Test
+    @DisplayName("교체를 완료하지 못하면 500을 반환한다")
+    void returnsServerErrorWhenRotateFails() throws Exception {
+        given(tokenRefreshService.refresh(any()))
+                .willThrow(new BusinessException(ErrorCode.AUTH_TOKEN_ROTATE_FAILED));
+
+        refresh(REFRESH_BODY)
+                .andExpect(status().isInternalServerError())
+                .andExpect(jsonPath("$.code").value("AUTH_TOKEN_ROTATE_FAILED"));
+    }
+
     private static String replaceField(String body, String field, String value) {
         return body.replaceAll(
                 "\"" + field + "\"\\s*:\\s*\"[^\"]*\"", "\"" + field + "\": \"" + value + "\"");
@@ -315,15 +369,20 @@ class AuthControllerTest {
                 post("/api/v1/auth/login").contentType(MediaType.APPLICATION_JSON).content(body));
     }
 
+    private ResultActions refresh(String body) throws Exception {
+        return mockMvc.perform(
+                post("/api/v1/auth/refresh")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body));
+    }
+
     private void givenLoginReturnsTokens() {
-        given(loginService.login(any(), any()))
-                .willReturn(
-                        new IssuedTokens(
-                                TOKEN_ID,
-                                "access.token.value",
-                                900,
-                                "refresh.token.value",
-                                1_209_600));
+        given(loginService.login(any(), any())).willReturn(issuedTokens());
+    }
+
+    private static IssuedTokens issuedTokens() {
+        return new IssuedTokens(
+                TOKEN_ID, "access.token.value", 900, "refresh.token.value", 1_209_600);
     }
 
     private void givenLoginRejectsCredentials() {

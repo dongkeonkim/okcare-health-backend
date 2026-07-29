@@ -10,11 +10,20 @@ public enum ErrorCode {
     AUTH_CREDENTIALS_INVALID(
             HttpStatus.UNAUTHORIZED,
             "이메일 또는 비밀번호가 올바르지 않습니다."),
+    // 만료, 위조와 폐기가 같은 코드와 메시지를 공유. 나누면 토큰이 한때 유효했는지 알려 주게
+    // 되고, 클라이언트가 할 일은 어느 경우든 재로그인 하나임.
+    AUTH_REFRESH_TOKEN_INVALID(
+            HttpStatus.UNAUTHORIZED,
+            "다시 로그인해 주세요."),
     MEMBER_EMAIL_DUPLICATED(HttpStatus.CONFLICT, "이미 사용 중인 이메일입니다."),
-    // 메시지가 실패한 저장소를 가리키지 않음. 내부 구성을 알려 줄 이유가 없음.
+    // 메시지가 실패한 저장소를 가리키지 않음. 내부 구성을 알려 줄 이유가 없음. 로그인 저장과
+    // 재발급 교체를 다른 코드로 나눈 것은 상태와 메시지가 같아도 로그에서 구분하기 위함.
     AUTH_TOKEN_STORE_FAILED(
             HttpStatus.INTERNAL_SERVER_ERROR,
             "로그인을 완료하지 못했습니다. 잠시 후 다시 시도해 주세요."),
+    AUTH_TOKEN_ROTATE_FAILED(
+            HttpStatus.INTERNAL_SERVER_ERROR,
+            "토큰 재발급을 완료하지 못했습니다. 잠시 후 다시 시도해 주세요."),
     INTERNAL_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "요청을 처리하지 못했습니다.");
 
     private final HttpStatus status;
