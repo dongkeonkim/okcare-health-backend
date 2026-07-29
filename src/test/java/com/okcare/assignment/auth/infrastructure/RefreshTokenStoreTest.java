@@ -1,6 +1,7 @@
 package com.okcare.assignment.auth.infrastructure;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
@@ -143,6 +144,34 @@ class RefreshTokenStoreTest {
         assertThatFails(
                 () -> store.rotate(CLAIMS, REFRESH_TOKEN, NEW_TOKENS),
                 ErrorCode.AUTH_TOKEN_ROTATE_FAILED);
+    }
+
+    @Test
+    @DisplayName("폐기는 회원과 tokenId로 만든 키만 삭제한다")
+    void revokeDeletesOwnKey() {
+        store.revoke(CLAIMS);
+
+        verify(redisTemplate).delete("auth:refresh:7:token-id");
+    }
+
+    @Test
+    @DisplayName("이미 없는 키를 폐기해도 오류로 만들지 않는다")
+    void revokeIsIdempotent() {
+        // delete는 지운 것이 없으면 false를 돌려줌. 그것을 실패로 읽으면 재로그아웃이 오류가 됨.
+        given(redisTemplate.delete(anyString())).willReturn(false);
+
+        assertThatCode(() -> store.revoke(CLAIMS)).doesNotThrowAnyException();
+    }
+
+    @Test
+    @DisplayName("Redis 장애로 폐기하지 못하면 재발급 실패와 다른 코드로 바꾼다")
+    void translatesRevokeFailure() {
+        // 성공을 반환하면 클라이언트는 폐기됐다고 믿지만 토큰은 TTL까지 재발급에 쓸 수 있음.
+        willThrow(new RedisConnectionFailureException("연결 실패"))
+                .given(redisTemplate)
+                .delete(anyString());
+
+        assertThatFails(() -> store.revoke(CLAIMS), ErrorCode.AUTH_TOKEN_REVOKE_FAILED);
     }
 
     @SuppressWarnings("unchecked")

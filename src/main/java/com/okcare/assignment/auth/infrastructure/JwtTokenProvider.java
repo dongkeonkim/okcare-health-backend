@@ -67,36 +67,68 @@ public class JwtTokenProvider {
     /**
      * 리프레시 토큰 검증 후 저장 키를 가리키는 값 반환.
      *
+     * @throws BusinessException 서명·만료 검증에 실패했거나 {@code jti}가 없을 때
+     */
+    public RefreshTokenClaims parseRefreshToken(String token) {
+        Claims claims = parseClaims(token, ErrorCode.AUTH_REFRESH_TOKEN_INVALID);
+
+        // jti가 없으면 액세스 토큰. 가리킬 저장 키가 없으므로 재발급 입력으로 받지 않음.
+        if (claims.getId() == null) {
+            throw new BusinessException(ErrorCode.AUTH_REFRESH_TOKEN_INVALID);
+        }
+
+        return new RefreshTokenClaims(
+                memberId(claims, ErrorCode.AUTH_REFRESH_TOKEN_INVALID), claims.getId());
+    }
+
+    /**
+     * 액세스 토큰 검증 후 회원 식별자 반환.
+     *
+     * @throws BusinessException 서명·만료 검증에 실패했거나 {@code jti}가 있을 때
+     */
+    public long parseAccessToken(String token) {
+        Claims claims = parseClaims(token, ErrorCode.AUTH_ACCESS_TOKEN_INVALID);
+
+        // jti가 있으면 리프레시 토큰. 헤더에 넣어 인증하는 것을 막음. 허용하면 14일 토큰으로
+        // 15분 액세스 토큰의 권한을 계속 행사할 수 있음.
+        if (claims.getId() != null) {
+            throw new BusinessException(ErrorCode.AUTH_ACCESS_TOKEN_INVALID);
+        }
+
+        return memberId(claims, ErrorCode.AUTH_ACCESS_TOKEN_INVALID);
+    }
+
+    /**
+     * 서명과 만료 검증.
+     *
      * <p>{@code parseSignedClaims}가 {@code alg: none} 거부 수단. 서명 없는 토큰은 JWS가 아니라
      * 이 호출에서 걸림. 서명을 요구하지 않는 파싱 메서드로 바꾸면 위조 토큰이 통과.
      *
      * <p>파서에도 발급과 같은 {@link Clock}을 넘김. 시스템 시각을 쓰면 만료 검증을 테스트에서
      * 고정할 수 없음.
      *
-     * @throws BusinessException 서명·만료 검증에 실패했거나 {@code jti}가 없을 때
+     * <p>예외 종류를 오류 코드로 옮기지 않음. 만료와 위조를 구분해 응답하면 그 토큰이 한때
+     * 유효했는지 알려 주게 됨.
      */
-    public RefreshTokenClaims parseRefreshToken(String token) {
+    private Claims parseClaims(String token, ErrorCode onFailure) {
         try {
-            Claims claims =
-                    Jwts.parser()
-                            .verifyWith(signingKey)
-                            .clock(() -> Date.from(clock.instant()))
-                            .build()
-                            .parseSignedClaims(token)
-                            .getPayload();
-
-            // jti가 없으면 액세스 토큰. 가리킬 저장 키가 없으므로 재발급 입력으로 받지 않음.
-            if (claims.getId() == null) {
-                throw new BusinessException(ErrorCode.AUTH_REFRESH_TOKEN_INVALID);
-            }
-
-            // parseLong의 NumberFormatException은 IllegalArgumentException이라 아래 catch가
-            // 함께 받음. subject를 읽을 수 없는 토큰도 쓸 수 없는 토큰.
-            return new RefreshTokenClaims(Long.parseLong(claims.getSubject()), claims.getId());
+            return Jwts.parser()
+                    .verifyWith(signingKey)
+                    .clock(() -> Date.from(clock.instant()))
+                    .build()
+                    .parseSignedClaims(token)
+                    .getPayload();
         } catch (JwtException | IllegalArgumentException e) {
-            // 예외 종류를 오류 코드로 옮기지 않음. 만료와 위조를 구분해 응답하면 그 토큰이 한때
-            // 유효했는지 알려 주게 됨.
-            throw new BusinessException(ErrorCode.AUTH_REFRESH_TOKEN_INVALID);
+            throw new BusinessException(onFailure);
+        }
+    }
+
+    /** {@code Long.parseLong}은 {@code null}에도 예외를 던지므로 subject 부재까지 함께 걸림. */
+    private static long memberId(Claims claims, ErrorCode onFailure) {
+        try {
+            return Long.parseLong(claims.getSubject());
+        } catch (NumberFormatException e) {
+            throw new BusinessException(onFailure);
         }
     }
 

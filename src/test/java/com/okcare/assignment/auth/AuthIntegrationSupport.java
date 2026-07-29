@@ -19,6 +19,7 @@ import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMock
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
@@ -116,6 +117,20 @@ abstract class AuthIntegrationSupport {
 
         return mockMvc.perform(
                 post("/api/v1/auth/refresh").contentType(MediaType.APPLICATION_JSON).content(body));
+    }
+
+    protected ResultActions logout(String accessToken, String refreshToken) throws Exception {
+        String body = """
+                {
+                  "refreshToken": "%s"
+                }
+                """.formatted(refreshToken);
+
+        return mockMvc.perform(
+                post("/api/v1/auth/logout")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body));
     }
 
     protected JsonNode loginSuccessfully(String email) throws Exception {

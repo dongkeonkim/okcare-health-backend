@@ -104,6 +104,23 @@ public class RefreshTokenStore {
         }
     }
 
+    /**
+     * 리프레시 토큰 폐기.
+     *
+     * <p>키가 없어도 성공. 폐기의 목표 상태가 "그 토큰을 쓸 수 없음"이고 이미 달성돼 있으므로,
+     * 재로그아웃이나 재발급 뒤 로그아웃을 오류로 만들지 않음.
+     *
+     * @throws BusinessException 폐기를 완료할 수 없을 때
+     */
+    public void revoke(RefreshTokenClaims claims) {
+        try {
+            redisTemplate.delete(key(claims.memberId(), claims.tokenId()));
+        } catch (DataAccessException e) {
+            // 성공을 반환하면 클라이언트는 폐기됐다고 믿지만 토큰은 TTL까지 재발급에 쓸 수 있음.
+            throw new BusinessException(ErrorCode.AUTH_TOKEN_REVOKE_FAILED);
+        }
+    }
+
     static String key(long memberId, String tokenId) {
         return KEY_PREFIX + memberId + ":" + tokenId;
     }

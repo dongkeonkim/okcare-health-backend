@@ -2,8 +2,10 @@ package com.okcare.assignment.auth.api;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.BDDMockito.willThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -12,11 +14,16 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.okcare.assignment.auth.application.LoginService;
+import com.okcare.assignment.auth.application.LogoutService;
 import com.okcare.assignment.auth.application.TokenRefreshService;
 import com.okcare.assignment.auth.domain.IssuedTokens;
+import com.okcare.assignment.auth.infrastructure.JwtTokenProvider;
 import com.okcare.assignment.common.error.BusinessException;
 import com.okcare.assignment.common.error.ErrorCode;
 import com.okcare.assignment.common.error.GlobalExceptionHandler;
+import com.okcare.assignment.common.security.JwtAuthenticationFilter;
+import com.okcare.assignment.common.security.TokenAuthenticationEntryPoint;
+import com.okcare.assignment.config.SecurityConfig;
 import com.okcare.assignment.config.TimeConfig;
 import com.okcare.assignment.member.application.MemberSignupService;
 import com.okcare.assignment.member.domain.Member;
@@ -25,17 +32,34 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.actuate.autoconfigure.endpoint.web.WebEndpointProperties;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
+import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.context.ApplicationContext;
+import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 
-/** Service를 대역으로 두고 HTTP 계약만 확인. 정규화와 중복 판정은 단위·통합 테스트가 담당. */
+/**
+ * Service를 대역으로 두고 HTTP 계약만 확인. 정규화와 중복 판정은 단위·통합 테스트가 담당.
+ *
+ * <p>필터를 끄지 않고 실제 {@link SecurityConfig}를 가져옴. {@code addFilters = false}로 끄면 어느
+ * 경로가 공개인지가 검증 대상에서 빠져, 로그인을 실수로 보호 경로에 넣어도 이 테스트가 통과함.
+ */
 @WebMvcTest(AuthController.class)
-@Import({GlobalExceptionHandler.class, TimeConfig.class})
+@Import({
+    GlobalExceptionHandler.class,
+    TimeConfig.class,
+    SecurityConfig.class,
+    JwtAuthenticationFilter.class,
+    TokenAuthenticationEntryPoint.class
+})
 class AuthControllerTest {
 
     private static final String VALID_BODY =
@@ -67,6 +91,22 @@ class AuthControllerTest {
     @MockitoBean private LoginService loginService;
 
     @MockitoBean private TokenRefreshService tokenRefreshService;
+
+    @MockitoBean private LogoutService logoutService;
+
+    @MockitoBean private JwtTokenProvider jwtTokenProvider;
+
+    @Autowired private ApplicationContext applicationContext;
+
+    /** 슬라이스에는 actuator 자동 구성이 없어 SecurityConfig가 읽는 base path만 직접 채움. */
+    @TestConfiguration
+    static class ActuatorPropertiesConfig {
+
+        @Bean
+        WebEndpointProperties webEndpointProperties() {
+            return new WebEndpointProperties();
+        }
+    }
 
     @Test
     @DisplayName("가입에 성공하면 201과 회원 정보를 반환한다")
@@ -354,6 +394,87 @@ class AuthControllerTest {
                 .andExpect(jsonPath("$.code").value("AUTH_TOKEN_ROTATE_FAILED"));
     }
 
+    @Test
+    @DisplayName("슬라이스 컨텍스트에도 기본 사용자를 만들지 않는다")
+    void definesNoDefaultUserDetailsService() {
+        // 자동 구성 제외를 @SpringBootApplication 애노테이션에만 두면 이 슬라이스에는 전파되지
+        // 않아 테스트 로그에 생성 비밀번호가 계속 남음. 통합 테스트만으로는 그 누락을 못 잡음.
+        assertThat(applicationContext.getBeansOfType(UserDetailsService.class)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("로그아웃에 성공하면 204와 빈 본문을 반환한다")
+    void returnsNoContentOnLogout() throws Exception {
+        givenAuthenticatedMember(42L);
+
+        String body = logout(REFRESH_BODY, "valid.access.token")
+                        .andExpect(status().isNoContent())
+                        .andReturn()
+                        .getResponse()
+                        .getContentAsString();
+
+        assertThat(body).isEmpty();
+        verify(logoutService).logout(eq(42L), eq("refresh.token.value"));
+    }
+
+    @Test
+    @DisplayName("Authorization 헤더가 없으면 401을 우리 오류 형식으로 반환한다")
+    void returnsOurErrorFormatWithoutHeader() throws Exception {
+        // 진입점을 붙이지 않으면 Spring 기본 401이 빈 본문으로 나가 오류 형식이 엔드포인트마다
+        // 달라짐. 필터 단계라 전역 예외 처리기가 이 실패를 받지 못함.
+        mockMvc.perform(
+                        post("/api/v1/auth/logout")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(REFRESH_BODY))
+                .andExpect(status().isUnauthorized())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.code").value("AUTH_ACCESS_TOKEN_INVALID"))
+                .andExpect(jsonPath("$.fieldErrors").isEmpty())
+                .andExpect(jsonPath("$.traceId").isNotEmpty())
+                .andExpect(jsonPath("$.timestamp").isNotEmpty());
+
+        verify(logoutService, never()).logout(anyLong(), any());
+    }
+
+    @Test
+    @DisplayName("액세스 토큰이 유효하지 않으면 401을 반환하고 로그아웃을 시도하지 않는다")
+    void rejectsInvalidAccessToken() throws Exception {
+        given(jwtTokenProvider.parseAccessToken(any()))
+                .willThrow(new BusinessException(ErrorCode.AUTH_ACCESS_TOKEN_INVALID));
+
+        logout(REFRESH_BODY, "broken.access.token")
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("AUTH_ACCESS_TOKEN_INVALID"));
+
+        verify(logoutService, never()).logout(anyLong(), any());
+    }
+
+    @Test
+    @DisplayName("인증은 됐지만 리프레시 토큰이 없으면 400을 반환한다")
+    void rejectsMissingRefreshTokenOnLogout() throws Exception {
+        givenAuthenticatedMember(42L);
+
+        logout("{\"refreshToken\": \"\"}", "valid.access.token")
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"))
+                .andExpect(fieldErrorOn("refreshToken"));
+
+        verify(logoutService, never()).logout(anyLong(), any());
+    }
+
+    @Test
+    @DisplayName("리프레시 토큰이 인증된 회원의 것이 아니면 401을 반환한다")
+    void rejectsOtherMembersRefreshToken() throws Exception {
+        givenAuthenticatedMember(42L);
+        willThrow(new BusinessException(ErrorCode.AUTH_REFRESH_TOKEN_INVALID))
+                .given(logoutService)
+                .logout(anyLong(), any());
+
+        logout(REFRESH_BODY, "valid.access.token")
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("AUTH_REFRESH_TOKEN_INVALID"));
+    }
+
     private static String replaceField(String body, String field, String value) {
         return body.replaceAll(
                 "\"" + field + "\"\\s*:\\s*\"[^\"]*\"", "\"" + field + "\": \"" + value + "\"");
@@ -374,6 +495,18 @@ class AuthControllerTest {
                 post("/api/v1/auth/refresh")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body));
+    }
+
+    private ResultActions logout(String body, String accessToken) throws Exception {
+        return mockMvc.perform(
+                post("/api/v1/auth/logout")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body));
+    }
+
+    private void givenAuthenticatedMember(long memberId) {
+        given(jwtTokenProvider.parseAccessToken(any())).willReturn(memberId);
     }
 
     private void givenLoginReturnsTokens() {

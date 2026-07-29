@@ -2,6 +2,15 @@ spring:
   application:
     name: okcare-health-backend
 
+  autoconfigure:
+    exclude:
+      # UserDetailsService 계열 빈이 하나도 없으면 Spring Boot가 기본 사용자를 만들고 임의
+      # 비밀번호 평문을 시작 로그에 남김. SecurityFilterChain을 정의해도 그 조건은 해제되지
+      # 않음. 인증은 Bearer 토큰 필터가 담당하므로 사용자명·비밀번호 인증 자체가 불필요.
+      # @SpringBootApplication(exclude = ...)로 두지 않는 이유는 그 방식이 @WebMvcTest 같은
+      # 슬라이스 컨텍스트에 전파되지 않아 테스트 로그에 비밀번호가 계속 남기 때문.
+      - org.springframework.boot.autoconfigure.security.servlet.UserDetailsServiceAutoConfiguration
+
   datasource:
     # 기본값을 두지 않음. 설정이 빠지면 placeholder 해석이 실패해 기동이 멈춤.
     url: jdbc:mysql://${DB_HOST}:${DB_PORT}/${DB_NAME}?characterEncoding=UTF-8&serverTimezone=UTC

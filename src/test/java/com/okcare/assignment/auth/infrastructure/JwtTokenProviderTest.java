@@ -109,7 +109,8 @@ class JwtTokenProviderTest {
 
         JwtTokenProvider later = providerAt(ISSUED_AT.plus(Duration.ofDays(15)));
 
-        assertThatRejects(() -> later.parseRefreshToken(token));
+        assertThatRejects(
+                () -> later.parseRefreshToken(token), ErrorCode.AUTH_REFRESH_TOKEN_INVALID);
     }
 
     @Test
@@ -123,7 +124,8 @@ class JwtTokenProviderTest {
                         .signWith(keyOf(base64("another-secret-that-is-32bytes!!")), Jwts.SIG.HS256)
                         .compact();
 
-        assertThatRejects(() -> provider.parseRefreshToken(forged));
+        assertThatRejects(
+                () -> provider.parseRefreshToken(forged), ErrorCode.AUTH_REFRESH_TOKEN_INVALID);
     }
 
     @Test
@@ -137,7 +139,8 @@ class JwtTokenProviderTest {
                         .expiration(Date.from(ISSUED_AT.plus(Duration.ofDays(14))))
                         .compact();
 
-        assertThatRejects(() -> provider.parseRefreshToken(unsigned));
+        assertThatRejects(
+                () -> provider.parseRefreshToken(unsigned), ErrorCode.AUTH_REFRESH_TOKEN_INVALID);
     }
 
     @Test
@@ -153,7 +156,8 @@ class JwtTokenProviderTest {
                         .signWith(signingKey(), Jwts.SIG.HS256)
                         .compact();
 
-        assertThatRejects(() -> provider.parseRefreshToken(token));
+        assertThatRejects(
+                () -> provider.parseRefreshToken(token), ErrorCode.AUTH_REFRESH_TOKEN_INVALID);
     }
 
     @Test
@@ -163,7 +167,53 @@ class JwtTokenProviderTest {
         // 15분짜리 토큰으로 14일 세션을 계속 갱신할 수 있음.
         String accessToken = provider.issue(42L).accessToken();
 
-        assertThatRejects(() -> provider.parseRefreshToken(accessToken));
+        assertThatRejects(
+                () -> provider.parseRefreshToken(accessToken),
+                ErrorCode.AUTH_REFRESH_TOKEN_INVALID);
+    }
+
+    @Test
+    @DisplayName("발급한 액세스 토큰을 되읽어 회원 식별자를 복원한다")
+    void parsesOwnAccessToken() {
+        String accessToken = provider.issue(42L).accessToken();
+
+        assertThat(provider.parseAccessToken(accessToken)).isEqualTo(42L);
+    }
+
+    @Test
+    @DisplayName("jti가 있는 리프레시 토큰은 인증 입력으로 받지 않는다")
+    void rejectsRefreshTokenAsAccessToken() {
+        // 허용하면 14일 토큰으로 15분 액세스 토큰의 권한을 만료 없이 계속 행사할 수 있음.
+        String refreshToken = provider.issue(42L).refreshToken();
+
+        assertThatRejects(
+                () -> provider.parseAccessToken(refreshToken),
+                ErrorCode.AUTH_ACCESS_TOKEN_INVALID);
+    }
+
+    @Test
+    @DisplayName("만료된 액세스 토큰을 거부한다")
+    void rejectsExpiredAccessToken() {
+        String accessToken = provider.issue(42L).accessToken();
+
+        JwtTokenProvider later = providerAt(ISSUED_AT.plus(Duration.ofMinutes(16)));
+
+        assertThatRejects(
+                () -> later.parseAccessToken(accessToken), ErrorCode.AUTH_ACCESS_TOKEN_INVALID);
+    }
+
+    @Test
+    @DisplayName("다른 secret으로 서명된 액세스 토큰을 거부한다")
+    void rejectsForeignlySignedAccessToken() {
+        String forged =
+                Jwts.builder()
+                        .subject("42")
+                        .expiration(Date.from(ISSUED_AT.plus(Duration.ofMinutes(15))))
+                        .signWith(keyOf(base64("another-secret-that-is-32bytes!!")), Jwts.SIG.HS256)
+                        .compact();
+
+        assertThatRejects(
+                () -> provider.parseAccessToken(forged), ErrorCode.AUTH_ACCESS_TOKEN_INVALID);
     }
 
     @Test
@@ -200,12 +250,12 @@ class JwtTokenProviderTest {
         return new JwtTokenProvider(new JwtProperties(SECRET), Clock.fixed(now, ZoneOffset.UTC));
     }
 
-    /** 거부 사유를 코드로 구분하지 않는 것이 계약이므로 모든 실패를 같은 코드로 단언. */
-    private static void assertThatRejects(ThrowingCallable parse) {
+    /** 거부 사유를 코드로 구분하지 않는 것이 계약이므로, 토큰 종류별로 하나의 코드만 단언. */
+    private static void assertThatRejects(ThrowingCallable parse, ErrorCode expected) {
         assertThatThrownBy(parse)
                 .isInstanceOf(BusinessException.class)
                 .extracting(e -> ((BusinessException) e).errorCode())
-                .isEqualTo(ErrorCode.AUTH_REFRESH_TOKEN_INVALID);
+                .isEqualTo(expected);
     }
 
     /** 서명 검증까지 통과해야 파싱되므로 설정한 secret으로 서명했는지도 함께 확인. */

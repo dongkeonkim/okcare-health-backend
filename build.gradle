@@ -31,10 +31,10 @@ dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-validation'
     implementation 'org.springframework.boot:spring-boot-starter-actuator'
 
-    // 전이 의존성이 없는 단일 아티팩트. spring-boot-starter-security와 달리 서블릿 필터
-    // 체인을 구성하지 않아 actuator health가 열린 채로 유지됨. 스타터는 Authorization 헤더를
-    // 검증하는 경로가 생길 때 추가. 로그인은 자격 증명을 본문으로 받으므로 필터 체인이 없어도 됨.
-    implementation 'org.springframework.security:spring-security-crypto'
+    // 스타터가 spring-security-crypto를 전이 포함하므로 PasswordEncoder용 명시 의존성은 두지
+    // 않음. 스타터는 기본 필터 체인으로 모든 경로를 막으므로 SecurityConfig가 /actuator/health를
+    // 반드시 열어 줘야 함. 막히면 Compose healthcheck가 실패해 세 컨테이너가 unhealthy가 됨.
+    implementation 'org.springframework.boot:spring-boot-starter-security'
 
     // Spring Boot의 dependency-management 대상이 아니라 버전을 직접 고정. 세 아티팩트의 버전이
     // 어긋나면 컴파일은 통과하고 런타임에 ServiceLoader가 구현을 찾지 못해 발급이 실패함.
