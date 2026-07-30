@@ -1,0 +1,68 @@
+package com.okcare.assignment.health;
+
+import com.okcare.assignment.IntegrationSupport;
+import com.okcare.assignment.health.infrastructure.HealthActivityRecordRepository;
+import com.okcare.assignment.health.infrastructure.HealthConnectionRepository;
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.List;
+import java.util.stream.Stream;
+import org.junit.jupiter.api.BeforeEach;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.test.web.servlet.ResultActions;
+import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
+
+/** 건강 데이터 통합 테스트의 공통 부분. 저장과 집계 조회 테스트가 같은 fixture와 저장 경로를 씀. */
+public abstract class HealthIntegrationSupport extends IntegrationSupport {
+
+    private static final Path FIXTURES = Path.of("fixtures/health");
+
+    @Autowired protected HealthConnectionRepository connectionRepository;
+
+    @Autowired protected HealthActivityRecordRepository recordRepository;
+
+    /**
+     * 앞선 테스트가 남긴 행 제거.
+     *
+     * <p>컨테이너를 클래스 사이에서 공유하는데 fixture의 {@code recordkey}가 고정값이라, 지우지
+     * 않으면 앞 테스트가 소유권을 선점해 뒤 테스트의 최초 저장이 409가 됨. 전체 건수 단언도 앞
+     * 테스트의 행이 섞여 무의미해짐.
+     *
+     * <p>레코드를 먼저 지움. 연결을 먼저 지우면 외래 키가 막음.
+     */
+    @BeforeEach
+    void clearStoredHealthData() {
+        recordRepository.deleteAllInBatch();
+        connectionRepository.deleteAllInBatch();
+    }
+
+    protected ResultActions saveFixture(String accessToken, Path file) throws Exception {
+        return save(accessToken, Files.readString(file));
+    }
+
+    protected ResultActions save(String accessToken, String body) throws Exception {
+        return mockMvc.perform(
+                MockMvcRequestBuilders.post("/api/v1/health-data")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body));
+    }
+
+    /** 파일 이름으로 정렬. 회귀 단언이 읽는 순서에 의존하므로 디렉터리 나열 순서에 맡기지 않음. */
+    protected static List<Path> fixtureFiles() {
+        try (Stream<Path> files = Files.list(FIXTURES)) {
+            return new ArrayList<>(
+                    files.filter(path -> path.getFileName().toString().endsWith(".json"))
+                            .sorted(Comparator.comparing(Path::toString))
+                            .toList());
+        } catch (IOException e) {
+            throw new UncheckedIOException("fixture를 읽을 수 없습니다.", e);
+        }
+    }
+}

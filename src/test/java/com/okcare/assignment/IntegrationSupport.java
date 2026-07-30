@@ -139,6 +139,12 @@ public abstract class IntegrationSupport {
         return readTree(bodyOf(login(email, PASSWORD).andExpect(status().isOk())));
     }
 
+    /** 보호 경로를 검증하는 테스트가 모두 가입과 로그인을 거치므로 두 단계를 묶음. */
+    protected String accessTokenOf(String email) throws Exception {
+        signup(email);
+        return loginSuccessfully(email).get("accessToken").asText();
+    }
+
     protected String refreshTokenOf(ResultActions result) throws Exception {
         return readTree(bodyOf(result.andExpect(status().isOk()))).get("refreshToken").asText();
     }

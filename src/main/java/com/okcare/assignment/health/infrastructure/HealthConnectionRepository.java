@@ -19,6 +19,15 @@ public interface HealthConnectionRepository extends JpaRepository<HealthConnecti
     Optional<HealthConnection> findByRecordKey(String recordKey);
 
     /**
+     * 회원이 소유한 연결만 조회.
+     *
+     * <p>조회 API는 {@code recordkey}가 없을 때와 남의 것일 때를 같은 404로 응답. 두 경우를
+     * 구분하지 않으므로 회원 조건을 조회에 함께 걸어 한 번으로 끝냄. 저장 경로처럼 찾은 뒤 소유권을
+     * 비교하면 구분할 수 있게 되고, 구분한 정보를 응답에서 다시 버려야 함.
+     */
+    Optional<HealthConnection> findByRecordKeyAndMemberId(String recordKey, Long memberId);
+
+    /**
      * 활동 레코드를 쓰기 전에 연결 행을 잠금.
      *
      * <p>같은 연결에 동시에 저장하는 요청을 직렬화하는 수단. 잠그지 않으면 두 요청이 서로 커밋 전에

@@ -24,6 +24,10 @@ public enum ErrorCode {
     // 미지원 공급자, 지원하지 않는 단위, 파싱할 수 없는 시각을 한 코드로 묶음. 클라이언트가 할
     // 일이 모두 요청 수정 하나임. 필드 단위 오류는 요청 DTO 제약이 INVALID_REQUEST로 따로 냄.
     HEALTH_DATA_INVALID(HttpStatus.BAD_REQUEST, "건강 데이터 형식이 올바르지 않습니다."),
+    // 없는 recordkey와 다른 회원의 recordkey가 같은 코드와 메시지를 공유. 나누면 recordkey가
+    // 이미 쓰이는 중인지 확인하는 수단이 됨. 메시지에 "존재하지 않는"을 쓰지 않는 이유도 같음.
+    // 상태로 감춘 것을 문구가 되돌려 알려 주게 됨.
+    HEALTH_RECORD_KEY_NOT_FOUND(HttpStatus.NOT_FOUND, "조회할 수 없는 recordkey입니다."),
     MEMBER_EMAIL_DUPLICATED(HttpStatus.CONFLICT, "이미 사용 중인 이메일입니다."),
     HEALTH_RECORD_KEY_CONFLICT(HttpStatus.CONFLICT, "다른 회원이 사용 중인 recordkey입니다."),
     // 메시지가 실패한 저장소를 가리키지 않음. 내부 구성을 알려 줄 이유가 없음. 로그인 저장과

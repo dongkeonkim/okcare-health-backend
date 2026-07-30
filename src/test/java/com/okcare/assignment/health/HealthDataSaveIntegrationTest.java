@@ -7,18 +7,11 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import com.okcare.assignment.IntegrationSupport;
 import com.okcare.assignment.RegressionBaseline;
 import com.okcare.assignment.health.domain.HealthActivityRecord;
-import com.okcare.assignment.health.infrastructure.HealthActivityRecordRepository;
-import com.okcare.assignment.health.infrastructure.HealthConnectionRepository;
-import java.io.IOException;
-import java.io.UncheckedIOException;
 import java.math.BigDecimal;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.List;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
@@ -26,14 +19,9 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
-import java.util.stream.Stream;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
-import org.springframework.test.web.servlet.ResultActions;
 
 /**
  * 과제가 제공한 네 JSON을 실제 MySQL에 저장해 개발 계획이 경계 검증으로 요구한
@@ -42,28 +30,7 @@ import org.springframework.test.web.servlet.ResultActions;
  * <p>인메모리 DB로 바꾸면 UNIQUE 제약과 {@code DECIMAL} 저장 정밀도라는 검증 대상 자체가 사라짐.
  * 인증도 실제 필터를 거쳐야 보호 경로 계약이 함께 검증됨.
  */
-class HealthDataSaveIntegrationTest extends IntegrationSupport {
-
-    private static final Path FIXTURES = Path.of("fixtures/health");
-
-    @Autowired private HealthConnectionRepository connectionRepository;
-
-    @Autowired private HealthActivityRecordRepository recordRepository;
-
-    /**
-     * 앞선 테스트가 남긴 행 제거.
-     *
-     * <p>컨테이너를 클래스 사이에서 공유하는데 fixture의 {@code recordkey}가 고정값이라, 지우지
-     * 않으면 앞 테스트가 소유권을 선점해 뒤 테스트의 최초 저장이 409가 됨. 전체 건수 단언도 앞
-     * 테스트의 행이 섞여 무의미해짐.
-     *
-     * <p>레코드를 먼저 지움. 연결을 먼저 지우면 외래 키가 막음.
-     */
-    @BeforeEach
-    void clearStoredHealthData() {
-        recordRepository.deleteAllInBatch();
-        connectionRepository.deleteAllInBatch();
-    }
+class HealthDataSaveIntegrationTest extends HealthIntegrationSupport {
 
     @Test
     @DisplayName("네 JSON을 저장하면 회귀 기준의 수신 건수만큼 새로 저장된다")
@@ -287,11 +254,6 @@ class HealthDataSaveIntegrationTest extends IntegrationSupport {
      * 이메일에 {@code health-} 접두사를 붙임. 통합 테스트가 컨테이너를 공유하므로 다른
      * 클래스와 같은 이메일을 쓰면 가입이 409가 되어 엉뚱한 곳에서 실패함.
      */
-    private String accessTokenOf(String email) throws Exception {
-        signup(email);
-        return loginSuccessfully(email).get("accessToken").asText();
-    }
-
     /**
      * 두 토큰으로 같은 본문을 동시에 저장하고 상태 코드만 돌려줌.
      *
@@ -322,26 +284,4 @@ class HealthDataSaveIntegrationTest extends IntegrationSupport {
         };
     }
 
-    private ResultActions saveFixture(String accessToken, Path file) throws Exception {
-        return save(accessToken, Files.readString(file));
-    }
-
-    private ResultActions save(String accessToken, String body) throws Exception {
-        return mockMvc.perform(
-                post("/api/v1/health-data")
-                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(body));
-    }
-
-    private static List<Path> fixtureFiles() {
-        try (Stream<Path> files = Files.list(FIXTURES)) {
-            return new ArrayList<>(
-                    files.filter(p -> p.getFileName().toString().endsWith(".json"))
-                            .sorted(Comparator.comparing(Path::toString))
-                            .toList());
-        } catch (IOException e) {
-            throw new UncheckedIOException("fixture를 읽을 수 없습니다.", e);
-        }
-    }
 }

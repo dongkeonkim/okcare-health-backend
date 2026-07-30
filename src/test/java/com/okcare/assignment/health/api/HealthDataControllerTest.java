@@ -1,0 +1,190 @@
+package com.okcare.assignment.health.api;
+
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.BDDMockito.given;
+import static org.mockito.BDDMockito.willThrow;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+import com.okcare.assignment.auth.infrastructure.JwtTokenProvider;
+import com.okcare.assignment.common.error.BusinessException;
+import com.okcare.assignment.common.error.ErrorCode;
+import com.okcare.assignment.common.error.GlobalExceptionHandler;
+import com.okcare.assignment.common.security.JwtAuthenticationFilter;
+import com.okcare.assignment.common.security.TokenAuthenticationEntryPoint;
+import com.okcare.assignment.config.AppProperties;
+import com.okcare.assignment.config.SecurityConfig;
+import com.okcare.assignment.config.TimeConfig;
+import com.okcare.assignment.health.application.HealthAggregationService;
+import com.okcare.assignment.health.application.HealthDataService;
+import com.okcare.assignment.health.domain.DailyTotal;
+import java.time.LocalDate;
+import java.time.ZoneId;
+import java.util.List;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.actuate.autoconfigure.endpoint.web.WebEndpointProperties;
+import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
+import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Import;
+import org.springframework.http.HttpHeaders;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.ResultActions;
+import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
+
+/**
+ * 조회 API의 HTTP 계약만 확인. 집계값과 반올림은 단위·통합 테스트가 담당.
+ *
+ * <p>필터를 끄지 않고 실제 {@link SecurityConfig}를 가져옴. 끄면 조회 경로가 보호되는지가 검증
+ * 대상에서 빠져, 공개 경로로 잘못 넣어도 통과함.
+ */
+@WebMvcTest(HealthDataController.class)
+@Import({
+    GlobalExceptionHandler.class,
+    TimeConfig.class,
+    SecurityConfig.class,
+    JwtAuthenticationFilter.class,
+    TokenAuthenticationEntryPoint.class
+})
+class HealthDataControllerTest {
+
+    private static final String RECORD_KEY = "7836887b-b12a-440f-af0f-851546504b13";
+    private static final String ACCESS_TOKEN = "access.token.value";
+    private static final long MEMBER_ID = 7L;
+
+    @Autowired private MockMvc mockMvc;
+
+    @MockitoBean private HealthDataService healthDataService;
+
+    @MockitoBean private HealthAggregationService healthAggregationService;
+
+    @MockitoBean private JwtTokenProvider jwtTokenProvider;
+
+    /**
+     * 슬라이스에는 actuator 자동 구성과 설정 속성 바인딩이 없어 SecurityConfig와 컨트롤러가 읽는
+     * 값만 직접 채움.
+     */
+    @TestConfiguration
+    static class SliceConfig {
+
+        @Bean
+        WebEndpointProperties webEndpointProperties() {
+            return new WebEndpointProperties();
+        }
+
+        @Bean
+        AppProperties appProperties() {
+            return new AppProperties(ZoneId.of("Asia/Seoul"));
+        }
+    }
+
+    @Test
+    @DisplayName("토큰이 없으면 401과 공통 오류 형식을 반환한다")
+    void rejectsUnauthenticated() throws Exception {
+        mockMvc.perform(dailyRequest())
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value(ErrorCode.AUTH_ACCESS_TOKEN_INVALID.name()))
+                .andExpect(jsonPath("$.traceId").isNotEmpty());
+    }
+
+    @Test
+    @DisplayName("조회에 성공하면 200과 응답 계약의 필드를 반환한다")
+    void returnsDailyTotals() throws Exception {
+        givenAuthenticated();
+        given(healthAggregationService.daily(anyLong(), anyString(), any(), any()))
+                .willReturn(List.of(DailyTotal.empty(LocalDate.of(2024, 11, 1))));
+
+        daily("2024-11-01", "2024-11-30")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.recordKey").value(RECORD_KEY))
+                .andExpect(jsonPath("$.zoneId").value("Asia/Seoul"))
+                .andExpect(jsonPath("$.items[0].date").value("2024-11-01"))
+                .andExpect(jsonPath("$.items[0].steps").value(0));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"2024-13-01", "2024-02-30", "2024/11/01", "20241101", "어제"})
+    @DisplayName("날짜 형식이 어긋나면 400과 공통 오류 형식을 반환한다")
+    void rejectsMalformedDate(String from) throws Exception {
+        givenAuthenticated();
+
+        // 상속한 기본 처리기는 이 예외를 RFC 7807 형식으로 내보냄. 공통 오류 형식으로 나오는지가
+        // 검증 대상이고, 어긋나면 클라이언트가 오류 응답을 한 가지로 다룰 수 없음.
+        daily(from, "2024-11-30")
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(ErrorCode.INVALID_REQUEST.name()))
+                .andExpect(jsonPath("$.traceId").isNotEmpty());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"recordKey", "from", "to"})
+    @DisplayName("필수 파라미터가 빠지면 400과 공통 오류 형식을 반환한다")
+    void rejectsMissingParameter(String omitted) throws Exception {
+        givenAuthenticated();
+
+        mockMvc.perform(withToken(dailyRequestWithout(omitted)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(ErrorCode.INVALID_REQUEST.name()));
+    }
+
+    @Test
+    @DisplayName("조회할 수 없는 recordkey는 404를 반환한다")
+    void mapsNotFoundToStatus() throws Exception {
+        givenAuthenticated();
+        willThrow(new BusinessException(ErrorCode.HEALTH_RECORD_KEY_NOT_FOUND))
+                .given(healthAggregationService)
+                .daily(anyLong(), anyString(), any(), any());
+
+        daily("2024-11-01", "2024-11-30")
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value(ErrorCode.HEALTH_RECORD_KEY_NOT_FOUND.name()));
+    }
+
+    private void givenAuthenticated() {
+        given(jwtTokenProvider.parseAccessToken(ACCESS_TOKEN)).willReturn(MEMBER_ID);
+    }
+
+    private ResultActions daily(String from, String to) throws Exception {
+        return mockMvc.perform(
+                withToken(
+                        dailyRequest()
+                                .param("recordKey", RECORD_KEY)
+                                .param("from", from)
+                                .param("to", to)));
+    }
+
+    /**
+     * 파라미터를 붙이지 않은 요청. 인증 실패는 파라미터 검증보다 먼저 일어나므로 인증 테스트가
+     * 그대로 씀.
+     */
+    private static MockHttpServletRequestBuilder dailyRequest() {
+        return get("/api/v1/health-data/daily");
+    }
+
+    private static MockHttpServletRequestBuilder dailyRequestWithout(String omitted) {
+        MockHttpServletRequestBuilder request = dailyRequest();
+        if (!"recordKey".equals(omitted)) {
+            request = request.param("recordKey", RECORD_KEY);
+        }
+        if (!"from".equals(omitted)) {
+            request = request.param("from", "2024-11-01");
+        }
+        if (!"to".equals(omitted)) {
+            request = request.param("to", "2024-11-30");
+        }
+
+        return request;
+    }
+
+    private static MockHttpServletRequestBuilder withToken(MockHttpServletRequestBuilder request) {
+        return request.header(HttpHeaders.AUTHORIZATION, "Bearer " + ACCESS_TOKEN);
+    }
+}
