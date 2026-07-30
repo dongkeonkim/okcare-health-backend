@@ -21,6 +21,9 @@ public enum ErrorCode {
     AUTH_REFRESH_TOKEN_INVALID(
             HttpStatus.UNAUTHORIZED,
             "다시 로그인해 주세요."),
+    // 미지원 공급자, 지원하지 않는 단위, 파싱할 수 없는 시각을 한 코드로 묶음. 클라이언트가 할
+    // 일이 모두 요청 수정 하나임. 필드 단위 오류는 요청 DTO 제약이 INVALID_REQUEST로 따로 냄.
+    HEALTH_DATA_INVALID(HttpStatus.BAD_REQUEST, "건강 데이터 형식이 올바르지 않습니다."),
     MEMBER_EMAIL_DUPLICATED(HttpStatus.CONFLICT, "이미 사용 중인 이메일입니다."),
     // 메시지가 실패한 저장소를 가리키지 않음. 내부 구성을 알려 줄 이유가 없음. 로그인 저장과
     // 재발급 교체를 다른 코드로 나눈 것은 상태와 메시지가 같아도 로그에서 구분하기 위함.

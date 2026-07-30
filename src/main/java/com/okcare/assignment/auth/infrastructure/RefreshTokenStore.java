@@ -4,11 +4,8 @@ import com.okcare.assignment.auth.domain.IssuedTokens;
 import com.okcare.assignment.auth.domain.RefreshTokenClaims;
 import com.okcare.assignment.common.error.BusinessException;
 import com.okcare.assignment.common.error.ErrorCode;
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
+import com.okcare.assignment.common.security.Sha256;
 import java.time.Duration;
-import java.util.HexFormat;
 import java.util.List;
 import org.springframework.dao.DataAccessException;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -133,15 +130,6 @@ public class RefreshTokenStore {
      * 계산해 대조해야 함.
      */
     static String hash(String refreshToken) {
-        try {
-            byte[] digest =
-                    MessageDigest.getInstance("SHA-256")
-                            .digest(refreshToken.getBytes(StandardCharsets.UTF_8));
-
-            return HexFormat.of().formatHex(digest);
-        } catch (NoSuchAlgorithmException e) {
-            // SHA-256은 모든 JDK가 제공하도록 규격이 요구하므로 도달할 수 없음.
-            throw new IllegalStateException("SHA-256을 사용할 수 없습니다.", e);
-        }
+        return Sha256.hex(refreshToken);
     }
 }
