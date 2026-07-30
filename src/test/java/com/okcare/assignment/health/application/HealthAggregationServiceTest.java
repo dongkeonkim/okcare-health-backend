@@ -5,16 +5,19 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 
 import com.okcare.assignment.common.error.BusinessException;
 import com.okcare.assignment.common.error.ErrorCode;
 import com.okcare.assignment.health.domain.DailyTotal;
 import com.okcare.assignment.health.domain.HealthConnection;
+import com.okcare.assignment.health.domain.MonthlyTotal;
 import com.okcare.assignment.health.infrastructure.HealthActivityRecordRepository;
 import com.okcare.assignment.health.infrastructure.HealthConnectionRepository;
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.YearMonth;
 import java.util.List;
 import java.util.Optional;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
@@ -32,6 +35,7 @@ class HealthAggregationServiceTest {
     private static final long CONNECTION_ID = 42L;
     private static final String RECORD_KEY = "7836887b-b12a-440f-af0f-851546504b13";
     private static final LocalDate FROM = LocalDate.of(2024, 11, 1);
+    private static final YearMonth FROM_MONTH = YearMonth.of(2024, 11);
 
     private final HealthConnectionRepository connectionRepository =
             mock(HealthConnectionRepository.class);
@@ -126,6 +130,103 @@ class HealthAggregationServiceTest {
         assertThat(returned.steps()).isEqualTo(steps);
         assertThat(returned.calories()).isEqualTo(calories);
         assertThat(returned.distance()).isEqualTo(distance);
+    }
+
+    @Test
+    @DisplayName("월간도 상한과 같은 24개월은 조회하고 한 달 넘으면 거절한다")
+    void allowsExactlyMaxMonthsAndRejectsOneMore() {
+        givenOwnedConnection();
+        given(recordRepository.sumMonthlyTotals(any(), any(), any())).willReturn(List.of());
+
+        YearMonth lastAllowed = FROM_MONTH.plusMonths(HealthAggregationService.MAX_MONTHS - 1);
+        assertThat(service.monthly(MEMBER_ID, RECORD_KEY, FROM_MONTH, lastAllowed))
+                .hasSize(HealthAggregationService.MAX_MONTHS);
+
+        assertBadRequest(
+                () ->
+                        service.monthly(
+                                MEMBER_ID, RECORD_KEY, FROM_MONTH, lastAllowed.plusMonths(1)));
+        assertBadRequest(
+                () ->
+                        service.monthly(
+                                MEMBER_ID, RECORD_KEY, FROM_MONTH, FROM_MONTH.minusMonths(1)));
+    }
+
+    @Test
+    @DisplayName("월 범위를 시작 월 1일부터 종료 월 말일까지로 바꿔 조회한다")
+    void convertsMonthRangeToInclusiveDateRange() {
+        givenOwnedConnection();
+        given(recordRepository.sumMonthlyTotals(any(), any(), any())).willReturn(List.of());
+
+        // 윤년 2월. 말일을 직접 계산하면 28일로 잘못 잘라 2월 29일 데이터가 집계에서 빠짐.
+        service.monthly(MEMBER_ID, RECORD_KEY, YearMonth.of(2024, 1), YearMonth.of(2024, 2));
+
+        verify(recordRepository)
+                .sumMonthlyTotals(
+                        CONNECTION_ID, LocalDate.of(2024, 1, 1), LocalDate.of(2024, 2, 29));
+    }
+
+    @Test
+    @DisplayName("데이터가 없는 월을 0으로 채우고 오래된 월부터 정렬한다")
+    void fillsMissingMonthsInChronologicalOrder() {
+        givenOwnedConnection();
+        given(recordRepository.sumMonthlyTotals(any(), any(), any()))
+                .willReturn(
+                        List.of(
+                                monthlyTotal(FROM_MONTH.plusMonths(2), "300"),
+                                monthlyTotal(FROM_MONTH, "100")));
+
+        List<MonthlyTotal> totals =
+                service.monthly(MEMBER_ID, RECORD_KEY, FROM_MONTH, FROM_MONTH.plusMonths(3));
+
+        assertThat(totals)
+                .extracting(MonthlyTotal::month)
+                .containsExactly(
+                        FROM_MONTH,
+                        FROM_MONTH.plusMonths(1),
+                        FROM_MONTH.plusMonths(2),
+                        FROM_MONTH.plusMonths(3));
+        assertThat(totals)
+                .extracting(total -> total.steps().stripTrailingZeros().toPlainString())
+                .containsExactly("100", "0", "300", "0");
+    }
+
+    @Test
+    @DisplayName("월간도 저장소가 준 합계를 반올림하지 않고 그대로 넘긴다")
+    void neverRoundsMonthlyBeforeReturning() {
+        givenOwnedConnection();
+        BigDecimal calories = new BigDecimal("5002.4994391234");
+        given(recordRepository.sumMonthlyTotals(any(), any(), any()))
+                .willReturn(
+                        List.of(
+                                new MonthlyTotal(
+                                        FROM_MONTH,
+                                        new BigDecimal("124783.4999999999"),
+                                        calories,
+                                        calories)));
+
+        MonthlyTotal returned =
+                service.monthly(MEMBER_ID, RECORD_KEY, FROM_MONTH, FROM_MONTH).get(0);
+
+        assertThat(returned.calories()).isEqualTo(calories);
+        assertThat(returned.steps()).isEqualTo(new BigDecimal("124783.4999999999"));
+    }
+
+    @Test
+    @DisplayName("월간 조회도 소유하지 않은 recordkey를 404 코드로 거절한다")
+    void rejectsMonthlyForRecordKeyThatIsNotOwned() {
+        given(connectionRepository.findByRecordKeyAndMemberId(RECORD_KEY, MEMBER_ID))
+                .willReturn(Optional.empty());
+
+        assertThatThrownBy(
+                        () -> service.monthly(MEMBER_ID, RECORD_KEY, FROM_MONTH, FROM_MONTH))
+                .isInstanceOf(BusinessException.class)
+                .extracting(error -> ((BusinessException) error).errorCode())
+                .isEqualTo(ErrorCode.HEALTH_RECORD_KEY_NOT_FOUND);
+    }
+
+    private static MonthlyTotal monthlyTotal(YearMonth month, String steps) {
+        return new MonthlyTotal(month, new BigDecimal(steps), BigDecimal.ZERO, BigDecimal.ZERO);
     }
 
     private void givenOwnedConnection() {

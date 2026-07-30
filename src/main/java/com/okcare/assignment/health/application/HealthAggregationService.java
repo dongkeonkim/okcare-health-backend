@@ -4,9 +4,11 @@ import com.okcare.assignment.common.error.BusinessException;
 import com.okcare.assignment.common.error.ErrorCode;
 import com.okcare.assignment.health.domain.DailyTotal;
 import com.okcare.assignment.health.domain.HealthConnection;
+import com.okcare.assignment.health.domain.MonthlyTotal;
 import com.okcare.assignment.health.infrastructure.HealthActivityRecordRepository;
 import com.okcare.assignment.health.infrastructure.HealthConnectionRepository;
 import java.time.LocalDate;
+import java.time.YearMonth;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -33,6 +35,11 @@ public class HealthAggregationService {
      */
     static final int MAX_DAYS = 366;
 
+    /**
+     * 조회할 수 있는 최대 월수. 상한을 두는 이유는 {@link #MAX_DAYS}와 같음. 2년 비교를 덮는 값.
+     */
+    static final int MAX_MONTHS = 24;
+
     private final HealthConnectionRepository connectionRepository;
     private final HealthActivityRecordRepository recordRepository;
 
@@ -55,6 +62,25 @@ public class HealthAggregationService {
                 from, days, recordRepository.sumDailyTotals(connectionId, from, to));
     }
 
+    /**
+     * @throws BusinessException 범위가 뒤집혔거나 상한을 넘을 때, 조회할 수 없는
+     *     {@code recordkey}일 때
+     */
+    public List<MonthlyTotal> monthly(
+            long memberId, String recordKey, YearMonth from, YearMonth to) {
+
+        int months = requireValidRange(from, to);
+        long connectionId = requireOwnedConnection(memberId, recordKey);
+
+        // 시작 월의 1일부터 종료 월의 말일까지. 말일 계산을 YearMonth에 맡겨 2월과 윤년을 따로
+        // 다루지 않음.
+        List<MonthlyTotal> found =
+                recordRepository.sumMonthlyTotals(
+                        connectionId, from.atDay(1), to.atEndOfMonth());
+
+        return fillMissingMonths(from, months, found);
+    }
+
     private static int requireValidRange(LocalDate from, LocalDate to) {
         if (from.isAfter(to)) {
             throw new BusinessException(ErrorCode.INVALID_REQUEST);
@@ -67,6 +93,19 @@ public class HealthAggregationService {
         }
 
         return (int) days;
+    }
+
+    private static int requireValidRange(YearMonth from, YearMonth to) {
+        if (from.isAfter(to)) {
+            throw new BusinessException(ErrorCode.INVALID_REQUEST);
+        }
+
+        long months = ChronoUnit.MONTHS.between(from, to) + 1;
+        if (months > MAX_MONTHS) {
+            throw new BusinessException(ErrorCode.INVALID_REQUEST);
+        }
+
+        return (int) months;
     }
 
     private long requireOwnedConnection(long memberId, String recordKey) {
@@ -92,6 +131,22 @@ public class HealthAggregationService {
         for (int offset = 0; offset < days; offset++) {
             LocalDate date = from.plusDays(offset);
             filled.add(byDate.getOrDefault(date, DailyTotal.empty(date)));
+        }
+
+        return filled;
+    }
+
+    /** 조회 범위의 모든 월을 채움. 정렬을 여기서 정하는 이유는 {@link #fillMissingDates}와 같음. */
+    private static List<MonthlyTotal> fillMissingMonths(
+            YearMonth from, int months, List<MonthlyTotal> found) {
+
+        Map<YearMonth, MonthlyTotal> byMonth = new HashMap<>();
+        found.forEach(total -> byMonth.put(total.month(), total));
+
+        List<MonthlyTotal> filled = new ArrayList<>(months);
+        for (int offset = 0; offset < months; offset++) {
+            YearMonth month = from.plusMonths(offset);
+            filled.add(byMonth.getOrDefault(month, MonthlyTotal.empty(month)));
         }
 
         return filled;

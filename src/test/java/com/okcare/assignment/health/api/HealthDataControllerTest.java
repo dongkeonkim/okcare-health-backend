@@ -21,7 +21,9 @@ import com.okcare.assignment.config.TimeConfig;
 import com.okcare.assignment.health.application.HealthAggregationService;
 import com.okcare.assignment.health.application.HealthDataService;
 import com.okcare.assignment.health.domain.DailyTotal;
+import com.okcare.assignment.health.domain.MonthlyTotal;
 import java.time.LocalDate;
+import java.time.YearMonth;
 import java.time.ZoneId;
 import java.util.List;
 import org.junit.jupiter.api.DisplayName;
@@ -146,6 +148,51 @@ class HealthDataControllerTest {
         daily("2024-11-01", "2024-11-30")
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value(ErrorCode.HEALTH_RECORD_KEY_NOT_FOUND.name()));
+    }
+
+    @Test
+    @DisplayName("월간 조회에 성공하면 200과 yyyy-MM 형식의 month를 반환한다")
+    void returnsMonthlyTotals() throws Exception {
+        givenAuthenticated();
+        given(healthAggregationService.monthly(anyLong(), anyString(), any(), any()))
+                .willReturn(List.of(MonthlyTotal.empty(YearMonth.of(2024, 11))));
+
+        monthly("2024-11", "2024-12")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.recordKey").value(RECORD_KEY))
+                .andExpect(jsonPath("$.zoneId").value("Asia/Seoul"))
+                .andExpect(jsonPath("$.items[0].month").value("2024-11"))
+                .andExpect(jsonPath("$.items[0].steps").value(0));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"2024-13", "2024/11", "202411", "2024-11-01", "지난달"})
+    @DisplayName("월 형식이 어긋나면 400과 공통 오류 형식을 반환한다")
+    void rejectsMalformedMonth(String from) throws Exception {
+        givenAuthenticated();
+
+        // yyyy-MM-dd를 넣어도 거절해야 함. 일간 파라미터를 그대로 붙여 보내는 실수를 통과시키면
+        // 어느 달로 집계됐는지 알 수 없게 됨.
+        monthly(from, "2024-12")
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(ErrorCode.INVALID_REQUEST.name()));
+    }
+
+    @Test
+    @DisplayName("월간 조회도 토큰이 없으면 401을 반환한다")
+    void rejectsUnauthenticatedMonthly() throws Exception {
+        mockMvc.perform(get("/api/v1/health-data/monthly"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value(ErrorCode.AUTH_ACCESS_TOKEN_INVALID.name()));
+    }
+
+    private ResultActions monthly(String from, String to) throws Exception {
+        return mockMvc.perform(
+                withToken(
+                        get("/api/v1/health-data/monthly")
+                                .param("recordKey", RECORD_KEY)
+                                .param("from", from)
+                                .param("to", to)));
     }
 
     private void givenAuthenticated() {

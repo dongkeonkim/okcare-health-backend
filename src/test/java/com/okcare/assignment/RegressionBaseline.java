@@ -6,6 +6,7 @@ import java.math.BigDecimal;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.YearMonth;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.regex.Matcher;
@@ -107,7 +108,12 @@ public final class RegressionBaseline {
                     "회귀 기준에서 월간 표를 읽지 못했습니다: " + SPEC.toAbsolutePath());
         }
 
-        return new RegressionBaseline(parsed, Map.copyOf(monthly));
+        // 함정: Map.copyOf로 감싸지 않음. 불변으로 만들어 주지만 순회 순서를 보장하지 않고, 내부
+        // SALT 때문에 JVM 실행마다 순서가 바뀜. 호출부가 첫 항목을 뽑아 쓰면 실행마다 다른 행이
+        // 나와 간헐적으로 실패하는 테스트가 됨. 명세 표의 순서를 보존해야 첫 항목이 "표의 첫 행"
+        // 이라는 뜻을 가짐.
+        return new RegressionBaseline(
+                parsed, Collections.unmodifiableMap(new LinkedHashMap<>(monthly)));
     }
 
     /** 호출부가 키 집합까지 대조해야 함. 값만 확인하면 빠진 월을 알 수 없음. */

@@ -4,8 +4,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.okcare.assignment.health.domain.DailyTotal;
+import com.okcare.assignment.health.domain.MonthlyTotal;
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.YearMonth;
 import java.time.ZoneId;
 import java.util.List;
 import org.junit.jupiter.api.DisplayName;
@@ -79,6 +81,45 @@ class DailyAggregationResponseTest {
     @DisplayName("칼로리를 소수점 여섯 자리에서 HALF_UP으로 반올림한다")
     void roundsCaloriesHalfUp(String stored, String expected) throws Exception {
         assertThat(write(total("0", stored, "0"))).contains("\"calories\":" + expected);
+    }
+
+    @Test
+    @DisplayName("월간 응답은 month를 yyyy-MM 문자열로 직렬화한다")
+    void serializesMonthAsPattern() throws Exception {
+        // YearMonth의 Jackson 기본 직렬화는 [2024,11] 배열이 될 수 있음. 명세가 정한 형식이
+        // 유지되는지가 검증 대상.
+        String json =
+                objectMapper.writeValueAsString(
+                        MonthlyAggregationResponse.of(
+                                RECORD_KEY,
+                                SEOUL,
+                                List.of(
+                                        new MonthlyTotal(
+                                                YearMonth.of(2024, 11),
+                                                new BigDecimal("124783.4999"),
+                                                new BigDecimal("5002.4994391"),
+                                                new BigDecimal("94.3420945")))));
+
+        assertThat(json)
+                .contains("\"month\":\"2024-11\"")
+                .contains("\"steps\":124783")
+                .contains("\"calories\":5002.499439")
+                .contains("\"distance\":94.342095")
+                .doesNotContain("[2024");
+    }
+
+    @Test
+    @DisplayName("월간 응답도 값이 0인 달의 소수점 여섯 자리를 유지한다")
+    void keepsMonthlyScaleForZeroValues() throws Exception {
+        String json =
+                objectMapper.writeValueAsString(
+                        MonthlyAggregationResponse.of(
+                                RECORD_KEY,
+                                SEOUL,
+                                List.of(MonthlyTotal.empty(YearMonth.of(2024, 10)))));
+
+        assertThat(json).contains("\"calories\":0.000000").contains("\"distance\":0.000000");
+        assertThat(json).doesNotContain("E-");
     }
 
     private String write(DailyTotal total) throws Exception {

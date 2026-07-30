@@ -251,10 +251,6 @@ class HealthDataSaveIntegrationTest extends HealthIntegrationSupport {
     }
 
     /**
-     * 이메일에 {@code health-} 접두사를 붙임. 통합 테스트가 컨테이너를 공유하므로 다른
-     * 클래스와 같은 이메일을 쓰면 가입이 409가 되어 엉뚱한 곳에서 실패함.
-     */
-    /**
      * 두 토큰으로 같은 본문을 동시에 저장하고 상태 코드만 돌려줌.
      *
      * <p>{@code CountDownLatch}로 시작을 맞춤. 이것만으로 두 트랜잭션이 반드시 겹치지는 않지만,

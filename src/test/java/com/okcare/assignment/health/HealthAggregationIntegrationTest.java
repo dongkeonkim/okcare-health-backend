@@ -35,6 +35,8 @@ class HealthAggregationIntegrationTest extends HealthIntegrationSupport {
     private static final LocalDate RANGE_TO = LocalDate.of(2024, 12, 31);
     private static final LocalDate FIRST_STORED_DATE = LocalDate.of(2024, 11, 15);
     private static final int OUTPUT_SCALE = 6;
+    private static final YearMonth MONTH_FROM = YearMonth.of(2024, 11);
+    private static final YearMonth MONTH_TO = YearMonth.of(2024, 12);
 
     @Autowired private EntityManager entityManager;
 
@@ -199,41 +201,196 @@ class HealthAggregationIntegrationTest extends HealthIntegrationSupport {
 
         // JPQL이 만드는 SQL 자체가 아니라 같은 조건의 동등한 SQL을 확인. 조건 컬럼과 그룹핑이
         // 같아 옵티마이저가 고르는 인덱스도 같음.
-        String plan =
-                entityManager
-                        .createNativeQuery(
-                                """
-                                explain format=json
-                                select activity_date, sum(steps), sum(calories), sum(distance)
-                                from health_activity_records
-                                where connection_id = ?1
-                                  and activity_date between ?2 and ?3
-                                group by activity_date
-                                """)
-                        .setParameter(1, connectionId)
-                        .setParameter(2, RANGE_FROM)
-                        .setParameter(3, RANGE_TO)
-                        .getSingleResult()
-                        .toString();
+        JsonNode table =
+                explainPlanTable(
+                        """
+                        select activity_date, sum(steps), sum(calories), sum(distance)
+                        from health_activity_records
+                        where connection_id = ?1
+                          and activity_date between ?2 and ?3
+                        group by activity_date
+                        """,
+                        connectionId,
+                        RANGE_FROM,
+                        RANGE_TO);
 
-        // 문자열 포함으로 확인하지 않음. 인덱스명은 possible_keys에도 실려 있어서, MySQL이 테이블
-        // 스캔을 골라도 단언이 통과함. 실제로 고른 값인 key와 쓴 컬럼을 봐야 함.
-        JsonNode table = readTree(plan).findValue("table");
+        assertUsesConnectionDateIndex(table, "일간 집계");
+    }
+
+    @Test
+    @DisplayName("월간 조회 응답이 회귀 기준의 월간 값 8행을 그대로 재현한다")
+    void monthlyResponseReproducesBaseline() throws Exception {
+        String accessToken = storeAllFixtures("aggregate-monthly@example.com");
+        Map<RegressionBaseline.MonthlyKey, RegressionBaseline.MonthlyTotal> baseline =
+                RegressionBaseline.load().monthlyTotals();
+        assertThat(baseline).hasSize(8);
+
+        for (Map.Entry<RegressionBaseline.MonthlyKey, RegressionBaseline.MonthlyTotal> expected :
+                baseline.entrySet()) {
+
+            RegressionBaseline.MonthlyKey key = expected.getKey();
+            String body =
+                    bodyOf(
+                            monthly(accessToken, key.recordKey(), MONTH_FROM, MONTH_TO)
+                                    .andExpect(status().isOk()));
+
+            // 응답 원문에서 확인. 트리로 읽으면 Jackson이 소수 자리를 정규화해 형식 검증이 사라짐.
+            String expectedItem =
+                    "{\"month\":\"%s\",\"steps\":%d,\"calories\":%s,\"distance\":%s}"
+                            .formatted(
+                                    key.month(),
+                                    expected.getValue().steps(),
+                                    outputScale(expected.getValue().calories()),
+                                    outputScale(expected.getValue().distance()));
+            assertThat(body).as("%s %s", key.recordKey(), key.month()).contains(expectedItem);
+        }
+    }
+
+    @Test
+    @DisplayName("데이터가 없는 월도 0으로 채우고 조회 범위의 모든 월을 반환한다")
+    void fillsMissingMonths() throws Exception {
+        String accessToken = storeAllFixtures("aggregate-monthly-fill@example.com");
+
+        // fixture가 2024년 11·12월뿐이므로 9·10월은 채워진 값.
+        String body =
+                bodyOf(
+                        monthly(accessToken, firstRecordKey(), YearMonth.of(2024, 9), MONTH_TO)
+                                .andExpect(status().isOk()));
+
+        assertThat(body)
+                .contains(expectedMonthlyItemJson(YearMonth.of(2024, 9)))
+                .contains(expectedMonthlyItemJson(YearMonth.of(2024, 10)));
+        assertThat(readTree(body).get("items")).hasSize(4);
+    }
+
+    @Test
+    @DisplayName("월간 조회도 범위 상한과 소유권을 강제한다")
+    void enforcesMonthlyRangeAndOwnership() throws Exception {
+        String accessToken = storeAllFixtures("aggregate-monthly-guard@example.com");
+        String recordKey = firstRecordKey();
+
+        monthly(accessToken, recordKey, MONTH_FROM, MONTH_FROM.plusMonths(24))
+                .andExpect(status().isBadRequest());
+        monthly(accessToken, recordKey, MONTH_TO, MONTH_FROM).andExpect(status().isBadRequest());
+
+        // 상한과 같은 24개월은 통과.
+        monthly(accessToken, recordKey, MONTH_FROM, MONTH_FROM.plusMonths(23))
+                .andExpect(status().isOk());
+
+        String stranger = accessTokenOf("aggregate-monthly-stranger@example.com");
+        String unknownBody =
+                failureBodyWithoutTrace(
+                        monthly(
+                                        stranger,
+                                        "00000000-0000-0000-0000-000000000000",
+                                        MONTH_FROM,
+                                        MONTH_TO)
+                                .andExpect(status().isNotFound()));
+        String otherOwnerBody =
+                failureBodyWithoutTrace(
+                        monthly(stranger, recordKey, MONTH_FROM, MONTH_TO)
+                                .andExpect(status().isNotFound()));
+
+        assertThat(otherOwnerBody).isEqualTo(unknownBody);
+    }
+
+    @Test
+    @DisplayName("월간 집계 조회가 연결 식별자로 좁혀 들어가고 테이블을 훑지 않는다")
+    void monthlyDoesNotScanTable() throws Exception {
+        storeAllFixtures("aggregate-monthly-explain@example.com");
+        long connectionId = connectionIdOf(firstRecordKey());
+
+        // 연·월 그룹핑이 인덱스 컬럼에 함수를 씌우므로 범위 조건이 여전히 인덱스를 쓰는지 확인.
+        // 계획서가 완료 조건으로 둔 항목.
+        JsonNode table =
+                explainPlanTable(
+                        """
+                        select year(activity_date), month(activity_date),
+                               sum(steps), sum(calories), sum(distance)
+                        from health_activity_records
+                        where connection_id = ?1
+                          and activity_date between ?2 and ?3
+                        group by year(activity_date), month(activity_date)
+                        """,
+                        connectionId,
+                        MONTH_FROM.atDay(1),
+                        MONTH_TO.atEndOfMonth());
+
+        // 일간처럼 복합 인덱스를 단언하지 않음. 연·월 그룹핑이 인덱스 정렬 이점을 없애고, 월간
+        // 요청은 최소 한 달이라 범위 조건이 그 연결의 행을 거의 걸러내지 못함. 실측에서 두 인덱스
+        // 비용이 같게 나오며(222.45), 그 상태의 선택은 옵티마이저 tie-break이라 데이터 양이나
+        // MySQL 판에 따라 달라짐. 지켜야 하는 성질은 연결 식별자로 좁혀 들어가고 테이블을 통째로
+        // 훑지 않는 것.
+        assertThat(table.get("access_type").asText())
+                .as("월간 집계 접근 방식")
+                .isIn("ref", "range", "index_merge");
+        assertThat(usedKeyParts(table))
+                .as("월간 집계 선행 컬럼")
+                .first()
+                .isEqualTo("connection_id");
+    }
+
+    /**
+     * 실행 계획의 table 노드. 조회 전에 테이블 통계를 갱신.
+     *
+     * <p>함정: 대량 삽입 직후 InnoDB의 카디널리티 추정이 낡아 있어 EXPLAIN이 행 수를 1로 보고 전체
+     * 스캔을 고른다. 갱신하지 않으면 이 테스트가 옵티마이저의 판단이 아니라 통계 부재를 확인하게
+     * 되고, 인덱스가 실제로 쓰이는지는 검증되지 않는다.
+     */
+    private JsonNode explainPlanTable(String sql, Object... parameters) {
+        entityManager.createNativeQuery("analyze table health_activity_records").getResultList();
+
+        var query = entityManager.createNativeQuery("explain format=json " + sql);
+        for (int index = 0; index < parameters.length; index++) {
+            query.setParameter(index + 1, parameters[index]);
+        }
+
+        JsonNode table = readTree(query.getSingleResult().toString()).findValue("table");
         assertThat(table).as("실행 계획에 table 노드가 없음").isNotNull();
-        assertThat(table.get("key").asText())
-                .isEqualTo("ix_health_activity_records_connection_date");
-        assertThat(table.get("access_type").asText()).isEqualTo("range");
 
-        List<String> usedKeyParts = new ArrayList<>();
-        table.get("used_key_parts").forEach(part -> usedKeyParts.add(part.asText()));
-        assertThat(usedKeyParts).containsExactly("connection_id", "activity_date");
+        return table;
+    }
+
+    /**
+     * 인덱스명을 문자열 포함으로 확인하지 않음. 인덱스명은 {@code possible_keys}에도 실려 있어
+     * 테이블 스캔을 골라도 단언이 통과함. 실제로 고른 {@code key}와 쓴 컬럼을 봐야 함.
+     */
+    private static List<String> usedKeyParts(JsonNode table) {
+        List<String> parts = new ArrayList<>();
+        table.get("used_key_parts").forEach(part -> parts.add(part.asText()));
+
+        return parts;
+    }
+
+    private static void assertUsesConnectionDateIndex(JsonNode table, String label) {
+        List<String> usedKeyParts = usedKeyParts(table);
+
+        assertThat(table.get("key").asText())
+                .as("%s 인덱스", label)
+                .isEqualTo("ix_health_activity_records_connection_date");
+        assertThat(table.get("access_type").asText()).as("%s 접근 방식", label).isEqualTo("range");
+        assertThat(usedKeyParts)
+                .as("%s 사용 컬럼", label)
+                .containsExactly("connection_id", "activity_date");
 
         System.out.printf(
-                "일간 집계 실행 계획: key=%s access_type=%s used_key_parts=%s rows=%s%n",
+                "%s 실행 계획: key=%s access_type=%s used_key_parts=%s rows=%s%n",
+                label,
                 table.get("key").asText(),
                 table.get("access_type").asText(),
                 usedKeyParts,
                 table.get("rows_examined_per_scan"));
+    }
+
+    private ResultActions monthly(
+            String accessToken, String recordKey, YearMonth from, YearMonth to) throws Exception {
+
+        return mockMvc.perform(
+                get("/api/v1/health-data/monthly")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken)
+                        .param("recordKey", recordKey)
+                        .param("from", from.toString())
+                        .param("to", to.toString()));
     }
 
     private String storeAllFixtures(String email) throws Exception {
@@ -265,10 +422,22 @@ class HealthAggregationIntegrationTest extends HealthIntegrationSupport {
     }
 
     /**
+     * 데이터가 없는 월의 항목이 직렬화되어야 하는 문자열. 원문에서 확인하는 이유는
+     * {@link #expectedItemJson}과 같음.
+     */
+    private static String expectedMonthlyItemJson(YearMonth month) {
+        return "{\"month\":\"%s\",\"steps\":0,\"calories\":%s,\"distance\":%s}"
+                .formatted(
+                        month,
+                        roundedOutput(BigDecimal.ZERO).toPlainString(),
+                        roundedOutput(BigDecimal.ZERO).toPlainString());
+    }
+
+    /**
      * 항목 하나가 직렬화되어야 하는 문자열.
      *
      * <p>측정값을 JSON 트리로 읽어 비교하지 않음. Jackson은 실수를 {@code double}로 읽고,
-     * {@code BigDecimal}로 읽게 바꿔도 기본 node factory가 trailing zero를 떼어낸다. 어느 쪽이든
+     * {@code BigDecimal}로 읽게 바꿔도 기본 node factory가 trailing zero를 떼어냄. 어느 쪽이든
      * {@code 0.000000}이 {@code 0}으로 보여 소수점 여섯 자리 유지가 검증 대상에서 빠짐. 계약이
      * 전송되는 문자열 자체이므로 원문에서 확인.
      */
@@ -296,6 +465,13 @@ class HealthAggregationIntegrationTest extends HealthIntegrationSupport {
                 .getId();
     }
 
+    /**
+     * 회귀 기준 월간 표의 첫 행 {@code recordkey}.
+     *
+     * <p>{@code RegressionBaseline}이 표의 순서를 보존하므로 실행마다 같은 값. 보존하지 않으면 이
+     * 헬퍼가 실행마다 다른 recordkey를 돌려주고, fixture마다 행 수가 1,066~1,497로 달라 실행 계획
+     * 단언이 간헐적으로 흔들린다.
+     */
     private static String firstRecordKey() throws Exception {
         return RegressionBaseline.load().monthlyTotals().keySet().iterator().next().recordKey();
     }
@@ -312,5 +488,16 @@ class HealthAggregationIntegrationTest extends HealthIntegrationSupport {
 
     private static BigDecimal roundedOutput(BigDecimal value) {
         return value.setScale(OUTPUT_SCALE, RoundingMode.HALF_UP);
+    }
+
+    /**
+     * 회귀 기준의 값을 응답 정밀도 문자열로.
+     *
+     * <p>반올림 모드를 넘김. 회귀 기준 표의 값은 지금 소수점 여섯 자리지만, 모드 없이
+     * {@code setScale}만 부르면 표에 일곱 자리가 적히는 순간 기대값 불일치가 아니라
+     * {@code ArithmeticException}으로 죽어 실패 원인이 엉뚱하게 보인다.
+     */
+    private static String outputScale(BigDecimal value) {
+        return roundedOutput(value).toPlainString();
     }
 }

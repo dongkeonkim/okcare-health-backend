@@ -2,6 +2,7 @@ package com.okcare.assignment.health.infrastructure;
 
 import com.okcare.assignment.health.domain.DailyTotal;
 import com.okcare.assignment.health.domain.HealthActivityRecord;
+import com.okcare.assignment.health.domain.MonthlyTotal;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.Collection;
@@ -52,6 +53,37 @@ public interface HealthActivityRecordRepository
             group by record.activityDate
             """)
     List<DailyTotal> sumDailyTotals(
+            @Param("connectionId") Long connectionId,
+            @Param("from") LocalDate from,
+            @Param("to") LocalDate to);
+
+    /**
+     * 월별 측정값 합계. 반올림하지 않은 값을 돌려줌.
+     *
+     * <p>일별 합계를 더해 만들지 않고 원본 행에서 직접 집계. 반올림한 일별 값을 더하면 기능 명세의
+     * 월간 기대값과 어긋나고, 반올림 전 값을 나르는 경로를 따로 두면 반올림하는 자리가 늘어남.
+     *
+     * <p>{@code year()}, {@code month()}가 인덱스 컬럼에 함수를 씌워 그룹핑이 인덱스 정렬 이점을
+     * 받지 못함. 범위 조건은 여전히 인덱스로 좁힘. 실측에서 조회 범위가 한 달 이상이면 옵티마이저가
+     * 연결 식별자 UNIQUE 인덱스를 고르는데, 검사 행 수와 비용이 복합 인덱스와 같아 성능 차이 없음.
+     *
+     * <p>범위 조건을 월이 아니라 날짜로 받음. 호출부가 시작 월 1일과 종료 월 말일로 바꿔 넘기므로
+     * 여기서 말일을 다시 계산하지 않음.
+     */
+    @Query(
+            """
+            select new com.okcare.assignment.health.domain.MonthlyTotal(
+                    year(record.activityDate),
+                    month(record.activityDate),
+                    sum(record.steps),
+                    sum(record.calories),
+                    sum(record.distance))
+            from HealthActivityRecord record
+            where record.connectionId = :connectionId
+              and record.activityDate between :from and :to
+            group by year(record.activityDate), month(record.activityDate)
+            """)
+    List<MonthlyTotal> sumMonthlyTotals(
             @Param("connectionId") Long connectionId,
             @Param("from") LocalDate from,
             @Param("to") LocalDate to);

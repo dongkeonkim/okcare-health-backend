@@ -5,7 +5,7 @@ import com.okcare.assignment.health.application.HealthAggregationService;
 import com.okcare.assignment.health.application.HealthDataService;
 import jakarta.validation.Valid;
 import java.time.LocalDate;
-import org.springframework.format.annotation.DateTimeFormat;
+import java.time.YearMonth;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -37,40 +37,39 @@ public class HealthDataController {
 
     @PostMapping
     public HealthDataSaveResponse save(
-            @AuthenticationPrincipal
-            Long memberId,
+            @AuthenticationPrincipal Long memberId,
 
             @Valid
             @RequestBody
-            HealthDataRequest request) {
+            HealthDataRequest request
+    ) {
         return HealthDataSaveResponse.from(
                 request.recordkey(), healthDataService.save(memberId, request));
     }
 
-    /**
-     * {@code from}과 {@code to}에 {@link DateTimeFormat}을 명시.
-     *
-     * <p>기본 변환에 맡기면 형식이 Spring 설정에 좌우됨. 응답에 나가는 날짜 형식이 아니라 요청
-     * 계약이므로 코드에 고정.
-     */
     @GetMapping("/daily")
     public DailyAggregationResponse daily(
-            @AuthenticationPrincipal
-            Long memberId,
-
-            @RequestParam
-            String recordKey,
-
-            @RequestParam
-            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE)
-            LocalDate from,
-
-            @RequestParam
-            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE)
-            LocalDate to) {
+            @AuthenticationPrincipal Long memberId,
+            @RequestParam String recordKey,
+            @RequestParam LocalDate from,
+            @RequestParam LocalDate to
+    ) {
         return DailyAggregationResponse.of(
                 recordKey,
                 appProperties.businessZone(),
                 healthAggregationService.daily(memberId, recordKey, from, to));
+    }
+
+    @GetMapping("/monthly")
+    public MonthlyAggregationResponse monthly(
+            @AuthenticationPrincipal Long memberId,
+            @RequestParam String recordKey,
+            @RequestParam YearMonth from,
+            @RequestParam YearMonth to
+    ) {
+        return MonthlyAggregationResponse.of(
+                recordKey,
+                appProperties.businessZone(),
+                healthAggregationService.monthly(memberId, recordKey, from, to));
     }
 }

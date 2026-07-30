@@ -18,7 +18,12 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
 
-/** 건강 데이터 통합 테스트의 공통 부분. 저장과 집계 조회 테스트가 같은 fixture와 저장 경로를 씀. */
+/**
+ * 건강 데이터 통합 테스트의 공통 부분. 저장과 집계 조회 테스트가 같은 fixture와 저장 경로를 씀.
+ *
+ * <p>함정: 상속하는 테스트는 가입 이메일에 클래스마다 다른 접두사를 붙일 것. 통합 테스트가
+ * 컨테이너를 공유하므로 다른 클래스와 같은 이메일을 쓰면 가입이 409가 되어 엉뚱한 곳에서 실패함.
+ */
 public abstract class HealthIntegrationSupport extends IntegrationSupport {
 
     private static final Path FIXTURES = Path.of("fixtures/health");
