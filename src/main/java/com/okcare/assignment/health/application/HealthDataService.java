@@ -4,6 +4,7 @@ import com.okcare.assignment.common.error.BusinessException;
 import com.okcare.assignment.health.api.HealthDataRequest;
 import com.okcare.assignment.health.domain.NormalizedPayload;
 import com.okcare.assignment.health.domain.SaveResult;
+import com.okcare.assignment.health.infrastructure.HealthAggregationCache;
 import org.springframework.stereotype.Service;
 
 /**
@@ -18,14 +19,17 @@ public class HealthDataService {
     private final HealthDataNormalizer normalizer;
     private final HealthConnectionResolver connectionResolver;
     private final HealthActivityRecordWriter recordWriter;
+    private final HealthAggregationCache cache;
 
     public HealthDataService(
             HealthDataNormalizer normalizer,
             HealthConnectionResolver connectionResolver,
-            HealthActivityRecordWriter recordWriter) {
+            HealthActivityRecordWriter recordWriter,
+            HealthAggregationCache cache) {
         this.normalizer = normalizer;
         this.connectionResolver = connectionResolver;
         this.recordWriter = recordWriter;
+        this.cache = cache;
     }
 
     /**
@@ -35,6 +39,11 @@ public class HealthDataService {
         NormalizedPayload payload = normalizer.normalize(request);
         long connectionId = resolveConnection(memberId, payload);
         HealthActivityRecordWriter.Counts counts = recordWriter.write(connectionId, payload);
+
+        // 쓰기 트랜잭션이 커밋된 뒤에 무효화. 이 클래스에 트랜잭션이 없어 write가 반환한 시점이
+        // 이미 커밋 후임. 커밋 전에 증가시키면 그 틈의 조회가 저장 전 값을 새 version 키에 실어
+        // TTL 내내 낡은 값이 나감.
+        cache.invalidate(payload.recordKey());
 
         return new SaveResult(
                 payload.received(), counts.inserted(), counts.updated(), counts.duplicated());

@@ -5,6 +5,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.okcare.assignment.RegressionBaseline;
 import com.okcare.assignment.health.domain.DailyTotal;
 import jakarta.persistence.EntityManager;
@@ -380,6 +381,124 @@ class HealthAggregationIntegrationTest extends HealthIntegrationSupport {
                 table.get("access_type").asText(),
                 usedKeyParts,
                 table.get("rows_examined_per_scan"));
+    }
+
+    @Test
+    @DisplayName("두 번째 조회는 캐시에서 나오고 응답 원문이 첫 조회와 같다")
+    void servesIdenticalBodyFromCache() throws Exception {
+        String accessToken = storeAllFixtures("cache-hit@example.com");
+        String recordKey = firstRecordKey();
+
+        String first = bodyOf(daily(accessToken, recordKey, RANGE_FROM, RANGE_TO)
+                .andExpect(status().isOk()));
+
+        // 저장된 행을 모두 지운 뒤에도 같은 값이 나오면 DB를 보지 않았다는 뜻. 리포지토리 호출
+        // 횟수를 세는 것보다 직접적.
+        recordRepository.deleteAllInBatch();
+
+        String second = bodyOf(daily(accessToken, recordKey, RANGE_FROM, RANGE_TO)
+                .andExpect(status().isOk()));
+
+        // 원문 비교 한 줄이 직렬화 왕복, 소수 자리 유지, 정렬을 한 번에 덮음. 명세가 캐시 장애
+        // 여부에 따라 응답 형식과 집계값이 달라지지 않을 것을 요구.
+        assertThat(second).isEqualTo(first);
+    }
+
+    @Test
+    @DisplayName("월간 조회도 캐시에서 같은 원문을 돌려준다")
+    void servesIdenticalMonthlyBodyFromCache() throws Exception {
+        String accessToken = storeAllFixtures("cache-hit-monthly@example.com");
+        String recordKey = firstRecordKey();
+
+        String first = bodyOf(monthly(accessToken, recordKey, MONTH_FROM, MONTH_TO)
+                .andExpect(status().isOk()));
+        recordRepository.deleteAllInBatch();
+        String second = bodyOf(monthly(accessToken, recordKey, MONTH_FROM, MONTH_TO)
+                .andExpect(status().isOk()));
+
+        assertThat(second).isEqualTo(first);
+    }
+
+    @Test
+    @DisplayName("조회가 캐시 키를 TTL과 함께 만들고 version 키는 만들지 않는다")
+    void writesCacheKeyWithTtl() throws Exception {
+        String accessToken = storeAllFixtures("cache-key@example.com");
+        String recordKey = firstRecordKey();
+        redisTemplate.delete(redisTemplate.keys("health:*"));
+
+        daily(accessToken, recordKey, RANGE_FROM, RANGE_TO).andExpect(status().isOk());
+        monthly(accessToken, recordKey, MONTH_FROM, MONTH_TO).andExpect(status().isOk());
+
+        String dailyKey = "health:daily:" + recordKey + ":0:" + RANGE_FROM + ":" + RANGE_TO;
+        String monthlyKey = "health:monthly:" + recordKey + ":0:" + MONTH_FROM + ":" + MONTH_TO;
+        assertThat(redisTemplate.hasKey(dailyKey)).isTrue();
+        assertThat(redisTemplate.hasKey(monthlyKey)).isTrue();
+        assertThat(redisTemplate.getExpire(dailyKey)).isBetween(1L, 300L);
+        assertThat(redisTemplate.getExpire(monthlyKey)).isBetween(1L, 600L);
+
+        // 조회가 version 키를 만들면 저장 없이도 세대가 올라 캐시가 매번 비적중이 됨.
+        assertThat(redisTemplate.hasKey("health:cache-version:" + recordKey)).isFalse();
+    }
+
+    @Test
+    @DisplayName("저장하면 version이 올라가고 이전 캐시 키를 다시 쓰지 않는다")
+    void invalidatesByVersionAfterSave() throws Exception {
+        String accessToken = storeAllFixtures("cache-invalidate@example.com");
+        String recordKey = firstRecordKey();
+        redisTemplate.delete(redisTemplate.keys("health:*"));
+
+        daily(accessToken, recordKey, RANGE_FROM, RANGE_TO).andExpect(status().isOk());
+        String beforeKey = "health:daily:" + recordKey + ":0:" + RANGE_FROM + ":" + RANGE_TO;
+        assertThat(redisTemplate.hasKey(beforeKey)).isTrue();
+
+        saveFixture(accessToken, fixtureFiles().get(0)).andExpect(status().isOk());
+        assertThat(redisTemplate.opsForValue().get("health:cache-version:" + recordKey))
+                .isEqualTo("1");
+
+        daily(accessToken, recordKey, RANGE_FROM, RANGE_TO).andExpect(status().isOk());
+        String afterKey = "health:daily:" + recordKey + ":1:" + RANGE_FROM + ":" + RANGE_TO;
+        assertThat(redisTemplate.hasKey(afterKey)).isTrue();
+
+        // 이전 세대 키는 지우지 않고 TTL로 만료시킨다. 패턴 삭제를 쓰지 않는 대가.
+        assertThat(redisTemplate.hasKey(beforeKey)).isTrue();
+    }
+
+    @Test
+    @DisplayName("무효화 뒤에는 저장한 값이 조회에 반영된다")
+    void reflectsSavedDataAfterInvalidation() throws Exception {
+        String owner = storeAllFixtures("cache-fresh@example.com");
+        String recordKey = firstRecordKey();
+
+        JsonNode before = itemsOf(daily(owner, recordKey, RANGE_FROM, RANGE_TO));
+        long beforeSteps = before.get(14).get("steps").asLong();
+
+        // 같은 fixture의 한 엔트리 측정값만 바꿔 다시 저장. 캐시가 무효화되지 않으면 이전 값이
+        // 나옴.
+        ObjectNode changed = (ObjectNode) readTree(java.nio.file.Files.readString(
+                fixtureFiles().get(0)));
+        ObjectNode entry = (ObjectNode) changed.get("data").get("entries").get(0);
+        entry.put("steps", beforeSteps + 1000);
+        save(owner, changed.toString()).andExpect(status().isOk());
+
+        JsonNode after = itemsOf(daily(owner, recordKey, RANGE_FROM, RANGE_TO));
+        assertThat(after.get(14).get("steps").asLong()).isNotEqualTo(beforeSteps);
+    }
+
+    @Test
+    @DisplayName("version 키가 정수가 아니어도 조회가 200이고 값이 같다")
+    void survivesMalformedCacheVersion() throws Exception {
+        String accessToken = storeAllFixtures("cache-broken-version@example.com");
+        String recordKey = firstRecordKey();
+        String expected = bodyOf(daily(accessToken, recordKey, RANGE_FROM, RANGE_TO)
+                .andExpect(status().isOk()));
+
+        redisTemplate.opsForValue().set("health:cache-version:" + recordKey, "망가진값");
+
+        // NumberFormatException은 DataAccessException이 아니라 조회 경로의 catch를 빠져나갔고
+        // 500이 났다. 캐시 상태가 응답을 깨뜨리면 안 된다는 것이 명세의 요구.
+        assertThat(bodyOf(daily(accessToken, recordKey, RANGE_FROM, RANGE_TO)
+                        .andExpect(status().isOk())))
+                .isEqualTo(expected);
     }
 
     private ResultActions monthly(

@@ -14,13 +14,16 @@ import com.okcare.assignment.health.domain.DailyTotal;
 import com.okcare.assignment.health.domain.HealthConnection;
 import com.okcare.assignment.health.domain.MonthlyTotal;
 import com.okcare.assignment.health.infrastructure.HealthActivityRecordRepository;
+import com.okcare.assignment.health.infrastructure.HealthAggregationCache;
 import com.okcare.assignment.health.infrastructure.HealthConnectionRepository;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.YearMonth;
 import java.util.List;
 import java.util.Optional;
+import java.util.function.Supplier;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -43,8 +46,24 @@ class HealthAggregationServiceTest {
     private final HealthActivityRecordRepository recordRepository =
             mock(HealthActivityRecordRepository.class);
 
+    /**
+     * 캐시는 적재 함수를 그대로 실행하는 대역.
+     *
+     * <p>이 클래스의 검증 대상은 범위 검증, 소유권과 빈 구간 채우기. 캐시 적중을 섞으면 어느
+     * 경로를 검증하는지 흐려짐. 캐시 자체는 {@code HealthAggregationCacheTest}가 담당.
+     */
+    private final HealthAggregationCache cache = mock(HealthAggregationCache.class);
+
     private final HealthAggregationService service =
-            new HealthAggregationService(connectionRepository, recordRepository);
+            new HealthAggregationService(connectionRepository, recordRepository, cache);
+
+    @BeforeEach
+    void cachePassesThrough() {
+        given(cache.daily(any(), any(), any(), any()))
+                .willAnswer(call -> ((Supplier<?>) call.getArgument(3)).get());
+        given(cache.monthly(any(), any(), any(), any()))
+                .willAnswer(call -> ((Supplier<?>) call.getArgument(3)).get());
+    }
 
     @Test
     @DisplayName("범위가 뒤집히면 저장소를 조회하지 않고 거절한다")

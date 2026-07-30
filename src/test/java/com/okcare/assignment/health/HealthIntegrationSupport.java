@@ -45,6 +45,10 @@ public abstract class HealthIntegrationSupport extends IntegrationSupport {
     void clearStoredHealthData() {
         recordRepository.deleteAllInBatch();
         connectionRepository.deleteAllInBatch();
+
+        // 집계 캐시와 version 키도 비움. 행만 지우면 앞 테스트가 남긴 캐시가 적중해 DB를 비운 것이
+        // 결과에 드러나지 않음. 운영 코드는 패턴 조회를 쓰지 않지만 테스트 정리에는 필요.
+        redisTemplate.delete(redisTemplate.keys("health:*"));
     }
 
     protected ResultActions saveFixture(String accessToken, Path file) throws Exception {
