@@ -39,7 +39,8 @@ public class AuthController {
     public SignupResponse signup(
             @Valid
             @RequestBody
-            SignupRequest request) {
+            SignupRequest request
+    ) {
         Member member =
                 memberSignupService.signup(
                         request.name(), request.nickname(), request.email(), request.password());
@@ -51,7 +52,8 @@ public class AuthController {
     public TokenResponse login(
             @Valid
             @RequestBody
-            LoginRequest request) {
+            LoginRequest request
+    ) {
         return TokenResponse.from(loginService.login(request.email(), request.password()));
     }
 
@@ -59,7 +61,8 @@ public class AuthController {
     public TokenResponse refresh(
             @Valid
             @RequestBody
-            RefreshRequest request) {
+            RefreshRequest request
+    ) {
         return TokenResponse.from(tokenRefreshService.refresh(request.refreshToken()));
     }
 
@@ -67,12 +70,12 @@ public class AuthController {
     @PostMapping("/logout")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void logout(
-            @AuthenticationPrincipal
-            Long memberId,
+            @AuthenticationPrincipal Long memberId,
 
             @Valid
             @RequestBody
-            RefreshRequest request) {
+            RefreshRequest request
+    ) {
         logoutService.logout(memberId, request.refreshToken());
     }
 }

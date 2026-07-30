@@ -79,7 +79,8 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
             @Nullable Object body,
             HttpHeaders headers,
             HttpStatusCode status,
-            WebRequest request) {
+            WebRequest request
+    ) {
 
         ErrorCode errorCode =
                 status.is4xxClientError() ? ErrorCode.INVALID_REQUEST : ErrorCode.INTERNAL_ERROR;
