@@ -3,11 +3,12 @@ package com.okcare.assignment.auth;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.okcare.assignment.IntegrationSupport;
 import java.time.Duration;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-class AuthLoginIntegrationTest extends AuthIntegrationSupport {
+class AuthLoginIntegrationTest extends IntegrationSupport {
 
     @Test
     @DisplayName("로그인하면 리프레시 토큰의 해시가 jti를 키로 14일 TTL로 저장된다")

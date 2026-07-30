@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.okcare.assignment.IntegrationSupport;
 import com.okcare.assignment.auth.application.TokenRefreshService;
 import com.okcare.assignment.common.error.BusinessException;
 import com.okcare.assignment.common.error.ErrorCode;
@@ -26,7 +27,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
-class AuthRefreshIntegrationTest extends AuthIntegrationSupport {
+class AuthRefreshIntegrationTest extends IntegrationSupport {
 
     @Autowired private TokenRefreshService tokenRefreshService;
 

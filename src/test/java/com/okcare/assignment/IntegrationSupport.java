@@ -1,4 +1,4 @@
-package com.okcare.assignment.auth;
+package com.okcare.assignment;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -6,7 +6,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import com.okcare.assignment.TestSecrets;
 import io.jsonwebtoken.Jwts;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -27,7 +26,10 @@ import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.MySQLContainer;
 
 /**
- * 인증 흐름 통합 테스트의 공통 인프라와 헬퍼.
+ * 통합 테스트의 공통 인프라와 헬퍼.
+ *
+ * <p>인증 헬퍼를 여기 두는 이유는 건강 데이터 저장도 액세스 토큰을 얻어야 하기 때문. 보호된 경로를
+ * 검증하는 테스트가 모두 가입과 로그인을 거침.
  *
  * <p>MySQL과 Redis를 실제로 띄움. 대역으로 바꾸면 TTL, 키 존재와 원자성이라는 검증 대상 자체가
  * 사라짐.
@@ -48,7 +50,7 @@ import org.testcontainers.containers.MySQLContainer;
             "REDIS_HOST=redis.invalid",
             "REDIS_PORT=1"
         })
-abstract class AuthIntegrationSupport {
+public abstract class IntegrationSupport {
 
     protected static final String PASSWORD = "StrongPassword1";
 

@@ -25,6 +25,7 @@ public enum ErrorCode {
     // 일이 모두 요청 수정 하나임. 필드 단위 오류는 요청 DTO 제약이 INVALID_REQUEST로 따로 냄.
     HEALTH_DATA_INVALID(HttpStatus.BAD_REQUEST, "건강 데이터 형식이 올바르지 않습니다."),
     MEMBER_EMAIL_DUPLICATED(HttpStatus.CONFLICT, "이미 사용 중인 이메일입니다."),
+    HEALTH_RECORD_KEY_CONFLICT(HttpStatus.CONFLICT, "다른 회원이 사용 중인 recordkey입니다."),
     // 메시지가 실패한 저장소를 가리키지 않음. 내부 구성을 알려 줄 이유가 없음. 로그인 저장과
     // 재발급 교체를 다른 코드로 나눈 것은 상태와 메시지가 같아도 로그에서 구분하기 위함.
     AUTH_TOKEN_STORE_FAILED(
