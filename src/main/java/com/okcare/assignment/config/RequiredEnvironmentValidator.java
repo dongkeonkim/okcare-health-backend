@@ -18,6 +18,7 @@ import org.springframework.core.env.Environment;
  * 밖으로 옮겨 조용히 비활성화되기 때문. 여기서는 {@code main}에서 직접 등록.
  *
  * <p>이름 존재 여부만 확인하고 값은 읽지 않으므로 자격 증명이 로그나 예외 메시지에 남지 않음.
+ * 예외는 {@code JWT_SECRET}의 placeholder 대조 하나이며, 비교 결과만 쓰고 값을 메시지에 담지 않음.
  */
 public class RequiredEnvironmentValidator
         implements ApplicationListener<ApplicationEnvironmentPreparedEvent> {
@@ -33,6 +34,15 @@ public class RequiredEnvironmentValidator
                     "REDIS_HOST",
                     "REDIS_PORT",
                     "JWT_SECRET");
+
+    /**
+     * 채우지 않은 채로 기동하면 안 되는 값.
+     *
+     * <p>{@code .env.example}을 그대로 복사해 기동하면 저장소에 공개된 값으로 토큰을 서명하게 됨.
+     * 그 키를 아는 쪽은 임의 회원 식별자로 토큰을 만들어 남의 데이터에 접근할 수 있음. 이름 존재만
+     * 확인하면 이 상태가 조용히 통과함.
+     */
+    private static final String JWT_SECRET_PLACEHOLDER = "CHANGE_ME";
 
     @Override
     public void onApplicationEvent(ApplicationEnvironmentPreparedEvent event) {
@@ -51,6 +61,11 @@ public class RequiredEnvironmentValidator
                     "필수 설정이 없어 기동할 수 없습니다: "
                             + String.join(", ", missing)
                             + ". .env.example을 참고해 환경변수를 채우세요.");
+        }
+
+        if (JWT_SECRET_PLACEHOLDER.equals(environment.getProperty("JWT_SECRET"))) {
+            throw new IllegalStateException(
+                    "JWT_SECRET이 채워지지 않았습니다. openssl rand -base64 32로 생성한 값을 넣으세요.");
         }
     }
 }

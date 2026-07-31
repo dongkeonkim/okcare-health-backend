@@ -28,14 +28,12 @@ spring:
         jdbc:
           time_zone: UTC
 
-  flyway:
-    enabled: true
-    locations: classpath:db/migration
-
   data:
     redis:
       host: ${REDIS_HOST}
       port: ${REDIS_PORT}
+      connect-timeout: 1s
+      timeout: 2s
 
 management:
   endpoints:
@@ -45,14 +43,13 @@ management:
         include: health
   endpoint:
     health:
-      show-details: always
+      # 인증이 없는 엔드포인트라 컴포넌트 이름과 버전을 드러내지 않음. 기본값과 같지만 노출을
+      # 좌우하는 값이라 명시. 컴포넌트 장애는 최상위 status에 반영되므로 healthcheck는 그대로
+      # 동작하고, 어느 컴포넌트가 죽었는지는 컨테이너 로그로 확인.
+      show-details: never
   health:
-    db:
-      enabled: true
-    redis:
-      enabled: true
-    # 확인 대상은 MySQL과 Redis 연결. 디스크 경로·용량과 SSL 체인은 인증 없이 노출할 이유가
-    # 없어 비활성화.
+    # 디스크 경로·용량과 SSL 체인은 인증 없이 노출할 이유가 없어 비활성화. db와 redis는 기본으로
+    # 켜져 있어 따로 적지 않음.
     diskspace:
       enabled: false
     ssl:

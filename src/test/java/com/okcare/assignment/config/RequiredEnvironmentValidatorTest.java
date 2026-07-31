@@ -25,6 +25,18 @@ class RequiredEnvironmentValidatorTest {
     }
 
     @Test
+    @DisplayName("JWT_SECRET이 placeholder면 기동을 실패시킨다")
+    void failsWhenJwtSecretIsPlaceholder() {
+        // 이름 존재 확인만으로는 .env.example 복사 상태 통과. 저장소 공개 키로 서명하면 임의 회원
+        // 식별자 토큰 생성 가능.
+        MockEnvironment environment = environmentWithAll().withProperty("JWT_SECRET", "CHANGE_ME");
+
+        assertThatThrownBy(() -> validator.validate(environment))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("JWT_SECRET");
+    }
+
+    @Test
     @DisplayName("문자열 설정 REDIS_HOST가 빠지면 기동을 실패시킨다")
     void failsWhenStringPropertyMissing() {
         // Spring Boot 단독으로는 막지 못하는 경우다. REDIS_PORT(int)는 바인딩 실패로 걸리지만

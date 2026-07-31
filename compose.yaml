@@ -9,8 +9,10 @@ services:
       # 저장 타임존을 고정하지 않으면 호스트 로캘에 따라 저장 시각이 달라짐.
       TZ: UTC
     command: --default-time-zone=+00:00
+    # 앱은 Compose 내부 네트워크로 접속하므로 호스트 공개 불필요. 로컬 점검용 포트만 남기고
+    # 루프백 바인딩으로 외부 접근 차단.
     ports:
-      - "3306:3306"
+      - "127.0.0.1:3306:3306"
     volumes:
       # 데이터는 named volume에 보존. docker compose down으로는 삭제되지 않음.
       - mysql-data:/var/lib/mysql
@@ -27,8 +29,9 @@ services:
     image: redis:7-alpine
     # 리프레시 토큰 저장소로 쓰므로 재시작에도 살아남도록 AOF로 영속화.
     command: ["redis-server", "--appendonly", "yes"]
+    # 루프백 바인딩 이유는 MySQL과 동일. 인증 없는 Redis 노출 시 토큰 상태 삭제 위험.
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     volumes:
       - redis-data:/data
     healthcheck:
@@ -50,7 +53,7 @@ services:
       REDIS_PORT: ${REDIS_PORT}
       JWT_SECRET: ${JWT_SECRET}
     ports:
-      - "8080:8080"
+      - "127.0.0.1:8080:8080"
     depends_on:
       # started가 아니라 healthy를 대기. MySQL은 포트를 연 뒤에도 한동안 접속을 거절함.
       mysql:

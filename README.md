@@ -278,10 +278,18 @@ Spring Security의 기본 `LogoutFilter`가 명세에 없는 `/logout`을 302로
 
 ```bash
 cp .env.example .env
+
+# JWT_SECRET을 새 난수로 채웁니다. .env.example의 값은 placeholder이며 그대로 두면 기동을 거부합니다.
+# 저장소에 공개된 키로 서명하면 누구나 임의 회원의 토큰을 만들 수 있습니다.
+openssl rand -base64 32
+
 docker compose up --build -d
 docker compose ps
 curl --fail http://localhost:8080/actuator/health
 ```
+
+`.env`의 `JWT_SECRET`에 위 명령의 출력을 넣으세요. MySQL과 Redis 포트는 `127.0.0.1`에만 바인딩되므로
+호스트 외부에서 접근할 수 없습니다.
 
 세 서비스가 healthy가 되면 `/actuator/health`가 MySQL과 Redis 연결 상태를 함께 반환합니다. 이어서 위
 [API](#api)의 `curl` 명령을 순서대로 실행하면 저장과 조회를 확인할 수 있습니다.
