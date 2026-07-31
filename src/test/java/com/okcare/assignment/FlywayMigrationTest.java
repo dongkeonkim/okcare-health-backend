@@ -1,6 +1,7 @@
 package com.okcare.assignment;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.okcare.assignment.config.AppProperties;
 import java.time.ZoneId;
@@ -10,6 +11,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.testcontainers.containers.MySQLContainer;
 import org.testcontainers.junit.jupiter.Container;
@@ -42,14 +44,18 @@ class FlywayMigrationTest {
     @Autowired private AppProperties appProperties;
 
     @Test
-    @DisplayName("Flyway가 빈 MySQL에 V1 migration을 적용한다")
+    @DisplayName("Flyway가 빈 MySQL에 모든 migration을 적용한다")
     void appliesAllMigrations() {
         List<String> applied =
                 jdbc.queryForList(
-                        "SELECT version FROM flyway_schema_history WHERE success = 1",
+                        """
+                        SELECT version FROM flyway_schema_history
+                        WHERE success = 1
+                        ORDER BY installed_rank
+                        """,
                         String.class);
 
-        assertThat(applied).contains("1");
+        assertThat(applied).containsExactly("1", "2");
     }
 
     @Test
@@ -69,6 +75,58 @@ class FlywayMigrationTest {
         assertThat(indexColumns("members", "uk_members_email")).containsExactly("email");
         assertThat(indexColumns("health_connections", "uk_health_connections_record_key"))
                 .containsExactly("record_key");
+    }
+
+    @Test
+    @DisplayName("외래 키가 고아 행 삽입을 거부한다")
+    void rejectsOrphanRows() {
+        // 테이블·UNIQUE·인덱스 단언만으로는 migration의 FK 누락 검출 불가. 실제 삽입 거부로
+        // 개발 계획의 FK 검증 보장.
+        assertThatThrownBy(
+                        () ->
+                                jdbc.update(
+                                        """
+                                        insert into health_connections
+                                            (member_id, record_key, source_name, product_name,
+                                             vendor_name, source_mode)
+                                        values (999999, ?, 'SamsungHealth', 'Android', 'Samsung', 9)
+                                        """,
+                                        "00000000-0000-0000-0000-000000000001"))
+                .isInstanceOf(DataIntegrityViolationException.class);
+
+        assertThatThrownBy(
+                        () ->
+                                jdbc.update(
+                                        """
+                                        insert into health_activity_records
+                                            (connection_id, metric_type, period_start_utc,
+                                             period_end_utc, activity_date, steps, calories,
+                                             distance, calories_unit, distance_unit,
+                                             source_last_updated_at, payload_hash)
+                                        values (999999, 'steps', '2024-11-15 00:00:00',
+                                                '2024-11-15 00:10:00', '2024-11-15', 1, 1, 1,
+                                                'kcal', 'km', '2024-11-15 00:00:00', ?)
+                                        """,
+                                        "0".repeat(64)))
+                .isInstanceOf(DataIntegrityViolationException.class);
+    }
+
+    @Test
+    @DisplayName("이메일 컬럼에 악센트 구분 콜레이션을 적용한다")
+    void usesAccentSensitiveEmailCollation() {
+        // 문자열 상수에 목표 콜레이션을 붙인 비교만으로는 V2 누락 검출 불가. 실제 컬럼
+        // 메타데이터 확인으로 migration 누락과 다른 컬럼 변경 검출.
+        String collation =
+                jdbc.queryForObject(
+                        """
+                        SELECT collation_name FROM information_schema.columns
+                        WHERE table_schema = DATABASE()
+                          AND table_name = 'members'
+                          AND column_name = 'email'
+                        """,
+                        String.class);
+
+        assertThat(collation).isEqualTo("utf8mb4_0900_as_cs");
     }
 
     @Test
