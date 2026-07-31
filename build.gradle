@@ -55,8 +55,6 @@ dependencies {
     testImplementation 'org.testcontainers:mysql'
 }
 
-// Spring REST Docs 의존성은 API 문서 경계에서 추가.
-
 tasks.named('test') {
     useJUnitPlatform()
 }
