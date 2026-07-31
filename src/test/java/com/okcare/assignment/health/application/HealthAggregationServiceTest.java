@@ -84,7 +84,6 @@ class HealthAggregationServiceTest {
         assertThat(service.daily(MEMBER_ID, RECORD_KEY, FROM, lastAllowed))
                 .hasSize(HealthAggregationService.MAX_DAYS);
 
-        // 경계를 한쪽만 확인하면 상한이 off-by-one이어도 통과함.
         assertBadRequest(() -> service.daily(MEMBER_ID, RECORD_KEY, FROM, lastAllowed.plusDays(1)));
     }
 
@@ -142,10 +141,8 @@ class HealthAggregationServiceTest {
 
         DailyTotal returned = service.daily(MEMBER_ID, RECORD_KEY, FROM, FROM).get(0);
 
-        // 이 계층이 응답 정밀도로 미리 줄이면 월간 집계가 일별 반올림값을 더하게 되고 기능 명세의
-        // 월간 기대값과 어긋남. 그런데 응답은 어차피 같은 자리에서 다시 반올림하므로 API 결과가
-        // 바뀌지 않아 다른 어느 테스트도 잡지 못함. 계층 계약을 여기서 직접 고정.
-        // BigDecimal의 isEqualTo는 scale까지 비교하므로 자리수가 줄어든 것도 걸림.
+        // 이 계층에서 반올림하면 월간 합산 오차 발생.
+        // 반올림 전 scale 유지.
         assertThat(returned.steps()).isEqualTo(steps);
         assertThat(returned.calories()).isEqualTo(calories);
         assertThat(returned.distance()).isEqualTo(distance);

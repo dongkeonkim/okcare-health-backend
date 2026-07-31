@@ -80,8 +80,8 @@ class FlywayMigrationTest {
     @Test
     @DisplayName("외래 키가 고아 행 삽입을 거부한다")
     void rejectsOrphanRows() {
-        // 테이블·UNIQUE·인덱스 단언만으로는 migration의 FK 누락 검출 불가. 실제 삽입 거부로
-        // 개발 계획의 FK 검증 보장.
+        // 테이블·UNIQUE·인덱스 단언만으로 FK 누락 확인 불가.
+        // 실제 삽입 거부까지 검증.
         assertThatThrownBy(
                         () ->
                                 jdbc.update(

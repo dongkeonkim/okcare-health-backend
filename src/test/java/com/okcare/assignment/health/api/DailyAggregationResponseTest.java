@@ -18,9 +18,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.json.JsonTest;
 
 /**
- * 반올림 결과를 {@code BigDecimal}로 비교하면 {@code 0E-6}도 {@code 0.000000}과 같다고 판정되지만,
- * 직렬화하면 {@code 0E-6}이 그대로 나가 명세의 응답 예시와 어긋남. 그래서 값이 아니라 JSON 문자열을
- * 확인.
+ * {@code BigDecimal} 비교만으로 JSON 소수 자릿수 검증 불가.
+ * 응답 문자열로 확인.
  *
  * <p>{@code new ObjectMapper()}가 아니라 실제 애플리케이션의 Jackson 구성을 씀. 직접 만든 것은
  * 날짜를 숫자로 직렬화해 여기서만 통과하는 결과가 나옴.
@@ -53,8 +52,7 @@ class DailyAggregationResponseTest {
     void keepsScaleForZeroValues() throws Exception {
         String json = write(DailyTotal.empty(DATE));
 
-        // 지수 표기나 0으로 줄면 명세의 응답 예시와 다른 형식이 됨. 칼로리가 전부 0인 recordkey가
-        // fixture에 실제로 있어 항상 지나가는 경로.
+        // 지수 표기나 0으로 축약되지 않는지 확인.
         assertThat(json).contains("\"steps\":0").contains("\"calories\":0.000000");
         assertThat(json).contains("\"distance\":0.000000").doesNotContain("E-");
     }
@@ -86,8 +84,7 @@ class DailyAggregationResponseTest {
     @Test
     @DisplayName("월간 응답은 month를 yyyy-MM 문자열로 직렬화한다")
     void serializesMonthAsPattern() throws Exception {
-        // YearMonth의 Jackson 기본 직렬화는 [2024,11] 배열이 될 수 있음. 명세가 정한 형식이
-        // 유지되는지가 검증 대상.
+        // YearMonth가 배열이 아닌 yyyy-MM 문자열로 직렬화되는지 확인.
         String json =
                 objectMapper.writeValueAsString(
                         MonthlyAggregationResponse.of(

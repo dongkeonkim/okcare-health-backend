@@ -24,11 +24,8 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.test.web.servlet.ResultActions;
 
 /**
- * 저장한 fixture를 실제 MySQL에서 집계해 기능 명세의 월간 회귀값과 대조.
- *
- * <p>일간 기대값은 명세에 없음. 그래서 일간은 반올림 전 합계를 월별로 더해 월간 회귀값으로 굴러
- * 올라가는지로 검증. 이 대조가 날짜 경계 검증도 겸함. UTC 날짜와 서울 날짜가 다른 엔트리가
- * 450건이고 그중 11건이 월을 넘으므로, 타임존 처리가 어긋나면 두 달 값이 동시에 틀어짐.
+ * 저장한 fixture를 실제 MySQL에서 집계하고 월별 회귀값과 대조.
+ * 날짜·타임존 경계도 함께 검증.
  */
 class HealthAggregationIntegrationTest extends HealthIntegrationSupport {
 
@@ -178,7 +175,6 @@ class HealthAggregationIntegrationTest extends HealthIntegrationSupport {
                 .andExpect(status().isBadRequest());
         daily(accessToken, recordKey, RANGE_TO, RANGE_FROM).andExpect(status().isBadRequest());
 
-        // 상한과 같은 366일은 통과. 한쪽만 확인하면 off-by-one이 남음.
         daily(accessToken, recordKey, RANGE_FROM, RANGE_FROM.plusDays(365))
                 .andExpect(status().isOk());
     }
@@ -235,7 +231,7 @@ class HealthAggregationIntegrationTest extends HealthIntegrationSupport {
                             monthly(accessToken, key.recordKey(), MONTH_FROM, MONTH_TO)
                                     .andExpect(status().isOk()));
 
-            // 응답 원문에서 확인. 트리로 읽으면 Jackson이 소수 자리를 정규화해 형식 검증이 사라짐.
+            // 응답 문자열로 Jackson의 소수 자리 정규화 누락 방지.
             String expectedItem =
                     "{\"month\":\"%s\",\"steps\":%d,\"calories\":%s,\"distance\":%s}"
                             .formatted(
@@ -274,7 +270,6 @@ class HealthAggregationIntegrationTest extends HealthIntegrationSupport {
                 .andExpect(status().isBadRequest());
         monthly(accessToken, recordKey, MONTH_TO, MONTH_FROM).andExpect(status().isBadRequest());
 
-        // 상한과 같은 24개월은 통과.
         monthly(accessToken, recordKey, MONTH_FROM, MONTH_FROM.plusMonths(23))
                 .andExpect(status().isOk());
 
@@ -301,8 +296,7 @@ class HealthAggregationIntegrationTest extends HealthIntegrationSupport {
         storeAllFixtures("aggregate-monthly-explain@example.com");
         long connectionId = connectionIdOf(firstRecordKey());
 
-        // 연·월 그룹핑이 인덱스 컬럼에 함수를 씌우므로 범위 조건이 여전히 인덱스를 쓰는지 확인.
-        // 계획서가 완료 조건으로 둔 항목.
+        // 월·연 그룹핑에도 날짜 범위 인덱스 사용 확인.
         JsonNode table =
                 explainPlanTable(
                         """
@@ -399,8 +393,7 @@ class HealthAggregationIntegrationTest extends HealthIntegrationSupport {
         String second = bodyOf(daily(accessToken, recordKey, RANGE_FROM, RANGE_TO)
                 .andExpect(status().isOk()));
 
-        // 원문 비교 한 줄이 직렬화 왕복, 소수 자리 유지, 정렬을 한 번에 덮음. 명세가 캐시 장애
-        // 여부에 따라 응답 형식과 집계값이 달라지지 않을 것을 요구.
+        // 응답 원문으로 캐시 경로의 직렬화·소수 자리·정렬 일치 확인.
         assertThat(second).isEqualTo(first);
     }
 
@@ -494,8 +487,7 @@ class HealthAggregationIntegrationTest extends HealthIntegrationSupport {
 
         redisTemplate.opsForValue().set("health:cache-version:" + recordKey, "망가진값");
 
-        // NumberFormatException은 DataAccessException이 아니라 조회 경로의 catch를 빠져나갔고
-        // 500이 났다. 캐시 상태가 응답을 깨뜨리면 안 된다는 것이 명세의 요구.
+        // 손상된 version도 캐시 문제로 조회를 깨뜨리지 않아야 함.
         assertThat(bodyOf(daily(accessToken, recordKey, RANGE_FROM, RANGE_TO)
                         .andExpect(status().isOk())))
                 .isEqualTo(expected);
@@ -540,10 +532,7 @@ class HealthAggregationIntegrationTest extends HealthIntegrationSupport {
         return readTree(bodyOf(result.andExpect(status().isOk()))).get("items");
     }
 
-    /**
-     * 데이터가 없는 월의 항목이 직렬화되어야 하는 문자열. 원문에서 확인하는 이유는
-     * {@link #expectedItemJson}과 같음.
-     */
+    /** 데이터가 없는 월의 JSON 항목. 원문 문자열로 형식까지 확인. */
     private static String expectedMonthlyItemJson(YearMonth month) {
         return "{\"month\":\"%s\",\"steps\":0,\"calories\":%s,\"distance\":%s}"
                 .formatted(
@@ -555,10 +544,8 @@ class HealthAggregationIntegrationTest extends HealthIntegrationSupport {
     /**
      * 항목 하나가 직렬화되어야 하는 문자열.
      *
-     * <p>측정값을 JSON 트리로 읽어 비교하지 않음. Jackson은 실수를 {@code double}로 읽고,
-     * {@code BigDecimal}로 읽게 바꿔도 기본 node factory가 trailing zero를 떼어냄. 어느 쪽이든
-     * {@code 0.000000}이 {@code 0}으로 보여 소수점 여섯 자리 유지가 검증 대상에서 빠짐. 계약이
-     * 전송되는 문자열 자체이므로 원문에서 확인.
+     * <p>JSON 트리로 읽으면 trailing zero가 사라질 수 있음.
+     * 전송 문자열 자체로 확인.
      */
     private static String expectedItemJson(DailyTotal total) {
         return "{\"date\":\"%s\",\"steps\":%d,\"calories\":%s,\"distance\":%s}"

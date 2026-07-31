@@ -13,14 +13,11 @@ import java.util.Locale;
 /**
  * 건강활동 데이터 저장 요청.
  *
- * <p>공급자가 보내는 JSON 구조를 그대로 받음. 필드명 {@code recordkey}의 소문자 k와
- * {@code vender} 오탈자는 둘 다 공급자 원본 계약이라 고치지 않음. 저장 응답은 기능 명세가
- * {@code recordKey}로 다르게 정하므로 이름이 어긋나는 것이 정상.
+ * <p>공급자 JSON 구조와 {@code recordkey}, {@code vender} 필드명을 그대로 수용.
+ * 저장 응답은 {@code recordKey} 사용.
  *
- * <p>길이 상한은 {@code health_connections}와 {@code health_activity_records}의 컬럼 정의와 같은
- * 값. 검증을 빼면 컬럼 폭을 넘는 값이 400이 아니라 저장 시점의 500으로 드러남.
- *
- * <p>{@code data.memo}와 {@code source.type}은 받지 않음. 저장할 컬럼이 없음.
+ * <p>입력 길이는 저장 컬럼과 일치.
+ * 저장하지 않는 {@code data.memo}와 {@code source.type}은 받지 않음.
  */
 public record HealthDataRequest(
         @NotBlank(message = "recordkey는 필수입니다.")

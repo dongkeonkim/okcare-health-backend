@@ -22,7 +22,7 @@ class AuthLoginIntegrationTest extends IntegrationSupport {
         // 운영 코드를 부르지 않고 따로 계산해, 다른 256비트 변환으로 바뀌면 드러나게 함.
         assertThat(redisTemplate.opsForValue().get(key)).isEqualTo(sha256Hex(refreshToken));
 
-        // TTL이 없으면 폐기하지 않은 토큰이 영구히 남고, 14일을 넘으면 명세보다 오래 살아남음.
+        // 토큰이 영구히 남거나 발급 계약보다 오래 살아남지 않는지 확인.
         assertThat(Duration.ofSeconds(redisTemplate.getExpire(key)))
                 .isBetween(Duration.ofDays(13), Duration.ofDays(14));
     }

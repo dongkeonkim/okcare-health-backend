@@ -7,13 +7,7 @@ import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.List;
 
-/**
- * 필드 이름과 순서는 기능 명세의 일간 조회 응답 계약.
- *
- * <p>반올림이 이 클래스에서만 일어남. 기능 명세가 집계를 끝낸 뒤 걸음수는 정수로, 칼로리와 거리는
- * 소수점 여섯 자리로 반올림하라고 정하므로 서비스 계층은 반올림하지 않은 값을 넘김. 반올림하는
- * 자리를 늘리면 어디서 줄었는지 추적할 수 없게 됨.
- */
+/** 일간 조회 응답 계약. 반올림은 응답 변환 단계에서만 수행. */
 public record DailyAggregationResponse(String recordKey, String zoneId, List<Item> items) {
 
     private static final int OUTPUT_SCALE = 6;

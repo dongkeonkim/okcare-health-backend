@@ -19,12 +19,7 @@ import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExcep
 /**
  * 모든 오류를 하나의 응답 형식으로 변환.
  *
- * <p>{@link ResponseEntityExceptionHandler}를 상속해 지원하지 않는 Content-Type, 허용되지 않는
- * 메서드처럼 Spring MVC가 이미 4xx로 분류한 예외의 상태를 보존. 상속하지 않고 {@code Exception}
- * 처리기만 두면 그 예외들이 전부 500으로 바뀐다.
- *
- * <p>어느 경로에서도 예외 객체를 로거에 넘기지 않는다. 예외 메시지와 stack trace에는 평문
- * 비밀번호와 요청 본문 일부가 섞여 들어온다. 원인 추적은 {@code traceId}와 예외 타입으로 한다.
+ * <p>Spring MVC의 4xx 상태 보존. 요청이 포함된 예외 객체는 로그에서 제외.
  */
 @RestControllerAdvice
 public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
@@ -46,12 +41,12 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 
         List<ErrorResponse.FieldError> fieldErrors =
                 ex.getBindingResult().getFieldErrors().stream()
-                        // getRejectedValue()를 쓰지 않음. 비밀번호 위반이면 평문이 그대로 담김.
+                        // 거부된 값은 읽지 않아 비밀번호 등 입력값 노출 방지.
                         .map(
                                 error ->
                                         new ErrorResponse.FieldError(
                                                 error.getField(), error.getDefaultMessage()))
-                        // 제약 조건 평가 순서는 보장되지 않음. 정렬해야 응답이 안정적.
+                        // 제약 조건 평가 순서가 비결정적이므로 응답 순서 정렬.
                         .sorted(
                                 Comparator.comparing(ErrorResponse.FieldError::field)
                                         .thenComparing(ErrorResponse.FieldError::message))
@@ -66,12 +61,7 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
                                 ErrorCode.INVALID_REQUEST, fieldErrors, traceId, clock.instant()));
     }
 
-    /**
-     * 나머지 Spring MVC 예외를 프레임워크가 정한 상태 그대로 내보낸다.
-     *
-     * <p>코드만 상태 계열에 맞춰 고른다. 여기서 {@link ErrorCode#status()}를 쓰면 415나 405가
-     * 400으로 바뀌어 원래 의미를 잃는다.
-     */
+    /** 나머지 Spring MVC 예외도 프레임워크가 정한 HTTP 상태로 응답. */
     @Override
     protected ResponseEntity<Object> handleExceptionInternal(
             Exception ex,

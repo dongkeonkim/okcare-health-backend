@@ -12,19 +12,12 @@ import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-/**
- * 기능 명세의 회귀 기준 읽기.
- *
- * <p>기대값을 테스트 코드에 다시 적지 않기 위한 것. 상수로 박으면 명세의 수치를 바꾸고 코드를
- * 고치지 않아도 테스트가 통과해 두 값이 어긋난 채로 남음.
- *
- * <p>Gradle {@code Test} 태스크의 작업 디렉터리가 프로젝트 루트라 상대 경로로 찾음.
- */
+/** 회귀 기준 파일을 읽어 테스트와 기대값의 중복을 방지. */
 public final class RegressionBaseline {
 
     private static final Path SPEC = Path.of("docs/명세/기능_명세.md");
 
-    /** 회귀 기준 절의 경계. 앞선 절의 같은 모양 목록을 잘못 읽지 않기 위함. */
+    /** 회귀 기준 구간의 경계. */
     private static final Pattern SECTION_START = Pattern.compile("^## 8\\. ");
     private static final Pattern SECTION_END = Pattern.compile("^## ");
 
@@ -108,10 +101,7 @@ public final class RegressionBaseline {
                     "회귀 기준에서 월간 표를 읽지 못했습니다: " + SPEC.toAbsolutePath());
         }
 
-        // 함정: Map.copyOf로 감싸지 않음. 불변으로 만들어 주지만 순회 순서를 보장하지 않고, 내부
-        // SALT 때문에 JVM 실행마다 순서가 바뀜. 호출부가 첫 항목을 뽑아 쓰면 실행마다 다른 행이
-        // 나와 간헐적으로 실패하는 테스트가 됨. 명세 표의 순서를 보존해야 첫 항목이 "표의 첫 행"
-        // 이라는 뜻을 가짐.
+        // LinkedHashMap으로 기준 순서와 첫 항목의 의미를 고정.
         return new RegressionBaseline(
                 parsed, Collections.unmodifiableMap(new LinkedHashMap<>(monthly)));
     }
@@ -121,7 +111,7 @@ public final class RegressionBaseline {
         return monthlyTotals;
     }
 
-    /** 라벨이 없으면 읽어 온 목록을 함께 알림. 명세 문구가 바뀌었을 때 원인을 바로 알기 위함. */
+    /** 라벨이 없으면 읽어 온 목록을 함께 알려 원인을 진단. */
     public int count(String label) {
         Integer value = counts.get(label);
 

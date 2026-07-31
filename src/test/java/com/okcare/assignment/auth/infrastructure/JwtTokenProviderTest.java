@@ -26,8 +26,8 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
 /**
- * 만료값은 기능 명세가 응답으로 노출하는 계약이고, {@code jti}는 리프레시 토큰 저장 키를 구성하므로
- * 둘 중 하나가 어긋나면 재발급과 로그아웃이 잘못된 키를 가리킴.
+ * 토큰 TTL과 {@code jti}가 재발급·로그아웃 저장소의 계약과
+ * 일치하는지 검증.
  */
 class JwtTokenProviderTest {
 

@@ -7,11 +7,7 @@ import java.time.YearMonth;
 import java.time.ZoneId;
 import java.util.List;
 
-/**
- * 필드 이름과 순서는 기능 명세의 월간 조회 응답 계약.
- *
- * <p>반올림이 이 클래스에서만 일어남. 이유는 {@link DailyAggregationResponse}와 같음.
- */
+/** 월간 조회 응답 계약. 반올림은 응답 변환 단계에서만 수행. */
 public record MonthlyAggregationResponse(String recordKey, String zoneId, List<Item> items) {
 
     private static final int OUTPUT_SCALE = 6;

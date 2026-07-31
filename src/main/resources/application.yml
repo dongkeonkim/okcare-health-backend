@@ -4,11 +4,9 @@ spring:
 
   autoconfigure:
     exclude:
-      # UserDetailsService 계열 빈이 하나도 없으면 Spring Boot가 기본 사용자를 만들고 임의
-      # 비밀번호 평문을 시작 로그에 남김. SecurityFilterChain을 정의해도 그 조건은 해제되지
-      # 않음. 인증은 Bearer 토큰 필터가 담당하므로 사용자명·비밀번호 인증 자체가 불필요.
-      # @SpringBootApplication(exclude = ...)로 두지 않는 이유는 그 방식이 @WebMvcTest 같은
-      # 슬라이스 컨텍스트에 전파되지 않아 테스트 로그에 비밀번호가 계속 남기 때문.
+      # 기본 사용자 자동 구성과 평문 비밀번호 로그 방지.
+      # @SpringBootApplication의 exclude는 테스트 슬라이스에 전파되지 않아
+      # spring.autoconfigure.exclude로 제외.
       - org.springframework.boot.autoconfigure.security.servlet.UserDetailsServiceAutoConfiguration
 
   datasource:
@@ -43,13 +41,11 @@ management:
         include: health
   endpoint:
     health:
-      # 인증이 없는 엔드포인트라 컴포넌트 이름과 버전을 드러내지 않음. 기본값과 같지만 노출을
-      # 좌우하는 값이라 명시. 컴포넌트 장애는 최상위 status에 반영되므로 healthcheck는 그대로
-      # 동작하고, 어느 컴포넌트가 죽었는지는 컨테이너 로그로 확인.
+      # health 상세 비공개. 컴포넌트 이름·버전 노출 방지.
+      # 장애 상태는 최상위 status로만 표시.
       show-details: never
   health:
-    # 디스크 경로·용량과 SSL 체인은 인증 없이 노출할 이유가 없어 비활성화. db와 redis는 기본으로
-    # 켜져 있어 따로 적지 않음.
+    # 인증 없이 디스크·SSL 상세 비공개.
     diskspace:
       enabled: false
     ssl:

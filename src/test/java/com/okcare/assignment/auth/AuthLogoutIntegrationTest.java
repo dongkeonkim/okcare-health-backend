@@ -113,9 +113,7 @@ class AuthLogoutIntegrationTest extends IntegrationSupport {
     @Test
     @DisplayName("로그아웃해도 액세스 토큰은 자체 만료 시각까지 계속 인증에 쓸 수 있다")
     void keepsAccessTokenUsableAfterLogout() throws Exception {
-        // 기능 명세가 명시적으로 요구하는 동작. 액세스 토큰 블랙리스트를 넣으면 여기서 깨짐.
-        // 보호된 엔드포인트가 로그아웃뿐이라, 첫 로그아웃 뒤 같은 액세스 토큰으로 두 번째
-        // 리프레시 토큰을 폐기해 액세스 토큰이 살아 있음을 확인.
+        // 리프레시 토큰만 폐기. 액세스 토큰은 자체 만료까지 허용.
         signup("survive@example.com");
         JsonNode first = loginSuccessfully("survive@example.com");
         JsonNode second = loginSuccessfully("survive@example.com");

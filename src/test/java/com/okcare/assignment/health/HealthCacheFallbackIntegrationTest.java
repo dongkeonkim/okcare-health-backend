@@ -82,8 +82,7 @@ class HealthCacheFallbackIntegrationTest {
 
         redis.stop();
 
-        // 명세는 캐시 장애 여부에 따라 응답 형식과 집계값이 달라지지 않을 것을 요구. 원문을
-        // 비교해 형식과 값을 함께 확인.
+        // 캐시 장애 후에도 응답 형식과 집계값이 동일해야 함.
         assertThat(bodyOf(daily(accessToken, recordKey))).isEqualTo(beforeDaily);
         assertThat(bodyOf(monthly(accessToken, recordKey))).isEqualTo(beforeMonthly);
     }

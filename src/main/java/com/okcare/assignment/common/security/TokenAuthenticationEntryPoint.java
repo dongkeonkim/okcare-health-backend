@@ -17,14 +17,8 @@ import org.springframework.security.web.AuthenticationEntryPoint;
 import org.springframework.stereotype.Component;
 
 /**
- * 인증 필터 단계의 401을 기능 명세의 오류 응답 형식으로 기록.
- *
- * <p>필터는 {@code DispatcherServlet} 앞에서 동작하므로 전역 예외 처리기가 이 실패를 받지 못함.
- * 이 진입점을 두지 않으면 헤더가 없는 요청에 Spring 기본 401(빈 본문과 {@code WWW-Authenticate})이
- * 나가고 오류 응답 형식이 엔드포인트마다 달라짐.
- *
- * <p>{@link AuthenticationException}을 로거에 넘기지 않음. 메시지에 제시된 토큰 문자열이 섞여
- * 들어옴.
+ * 인증 필터 단계의 401을 공통 오류 응답으로 변환.
+ * 예외 객체는 토큰 노출 방지를 위해 로그에서 제외.
  */
 @Component
 public class TokenAuthenticationEntryPoint implements AuthenticationEntryPoint {

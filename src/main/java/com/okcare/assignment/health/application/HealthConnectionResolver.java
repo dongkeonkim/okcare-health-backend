@@ -11,14 +11,11 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * {@code recordkey}와 회원의 연결 해석.
- *
- * <p>활동 레코드 저장과 다른 트랜잭션이어야 해서 별도 빈. 같은 빈 안의 메서드로 두면 자기 호출이
- * 프록시를 우회해 트랜잭션이 하나로 합쳐지고, 아래 재시도가 조용히 동작하지 않음.
- *
- * <p>연결만 만들어지고 이어지는 레코드 저장이 실패하면 레코드가 없는 연결이 남음. 다음 요청이 같은
- * 연결을 재사용하므로 보정하지 않음.
- */
+     * {@code recordkey}와 회원의 연결 해석.
+     *
+     * <p>활동 레코드 저장과 트랜잭션을 분리.
+     * 동시 생성 UNIQUE 위반은 새 트랜잭션에서 재시도.
+     */
 @Service
 public class HealthConnectionResolver {
 
@@ -31,15 +28,10 @@ public class HealthConnectionResolver {
     /**
      * 연결 식별자 반환. 없으면 인증된 회원 소유로 생성.
      *
-     * <p>엔티티가 아니라 식별자를 돌려줌. 호출부의 트랜잭션에서는 이 엔티티가 준영속이라
-     * 그대로 쓰면 다루기 까다로움.
-     *
-     * <p>같은 회원이 새 {@code recordkey}로 동시에 두 번 저장하면 한쪽이 UNIQUE 위반을 만남.
-     * 그 트랜잭션은 이미 롤백 대상이라 여기서 재조회할 수 없으므로 호출부가 이 메서드를 다시
-     * 부르고, 두 번째 호출은 새 트랜잭션에서 승자가 만든 연결을 찾음.
+     * <p>동시 생성 UNIQUE 위반은 호출부가 새 트랜잭션에서 재시도.
      *
      * @throws BusinessException 다른 회원이 소유한 {@code recordkey}일 때
-     * @throws ConcurrentCreationException 동시 생성으로 UNIQUE 위반이 났을 때. 호출부가 재시도
+     * @throws ConcurrentCreationException 동시 생성으로 UNIQUE 위반이 났을 때
      */
     @Transactional
     public long resolve(long memberId, NormalizedPayload payload) {
@@ -50,12 +42,10 @@ public class HealthConnectionResolver {
         }
 
         try {
-            // 명시적 flush로 제약 위반을 이 catch 경계 안에서 관찰. flush 시점이 ID 전략에
-            // 좌우되지 않으므로 채번 방식이 바뀌어도 동시 생성이 500으로 새지 않음.
+            // 명시적 flush로 제약 위반을 이 catch 경계 안에서 관찰.
             return repository.saveAndFlush(HealthConnection.create(memberId, payload)).getId();
         } catch (DataIntegrityViolationException e) {
-            // health_connections의 UNIQUE 제약은 uk_health_connections_record_key 하나뿐이라
-            // 원인이 특정됨.
+            // 정상 입력에서 발생 가능한 제약 위반을 동시 recordkey 생성으로 분류.
             throw new ConcurrentCreationException();
         }
     }

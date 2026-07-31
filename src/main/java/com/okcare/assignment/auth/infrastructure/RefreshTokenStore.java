@@ -18,12 +18,7 @@ public class RefreshTokenStore {
 
     private static final String KEY_PREFIX = "auth:refresh:";
 
-    /**
-     * 대조, 폐기와 저장을 한 원자 단위로 묶는 스크립트.
-     *
-     * <p>키가 없으면 {@code GET}이 Lua {@code false}를 돌려주므로 문자열 비교가 실패하고 0으로
-     * 끝남. 별도의 존재 검사가 필요하지 않음.
-     */
+    /** 대조·폐기·저장을 원자 단위로 묶는 스크립트. */
     private static final RedisScript<Long> ROTATE_SCRIPT =
             RedisScript.of(
                     """
@@ -47,10 +42,7 @@ public class RefreshTokenStore {
     /**
      * 발급한 리프레시 토큰의 해시 저장.
      *
-     * <p>TTL을 상수로 두지 않고 토큰 자신의 만료값에서 끌어옴. 두 값을 따로 관리하면 저장소에는
-     * 남아 있지만 서명 검증에서 만료된 토큰, 또는 그 반대가 생김.
-     *
-     * @throws BusinessException 저장에 실패했을 때. 호출부가 로그인을 실패 처리해야 함
+     * <p>TTL은 토큰 만료값과 동일하게 유지.
      */
     public void save(long memberId, IssuedTokens tokens) {
         String key = key(memberId, tokens.tokenId());
@@ -59,24 +51,18 @@ public class RefreshTokenStore {
         try {
             redisTemplate.opsForValue().set(key, hash(tokens.refreshToken()), ttl);
         } catch (DataAccessException e) {
-            // 저장하지 못한 토큰을 반환하면 클라이언트는 14일 동안 쓸 수 있다고 믿지만 첫
-            // 재발급에서 거절됨. 그 상태를 만들지 않기 위해 로그인 자체를 실패시킴.
+            // 저장 실패 시 로그인도 실패 처리.
             throw new BusinessException(ErrorCode.AUTH_TOKEN_STORE_FAILED);
         }
     }
 
     /**
-     * 리프레시 토큰 교체.
+     * 리프레시 토큰 원자적 교체.
      *
-     * <p>자바에서 {@code GET}으로 대조한 뒤 {@code DEL}과 {@code SET}을 부르지 않음. 같은 토큰으로
-     * 두 요청이 동시에 들어오면 양쪽이 대조를 통과해 리프레시 토큰이 하나에서 둘로 늘어남.
-     * {@code GETDEL}로 좁힐 수도 있지만 그러면 폐기와 저장 사이에서 죽을 때 사용자가 세션을 잃음.
+     * <p>동시 요청의 이중 회전 방지. Lua로 대조·폐기·저장을 원자화.
+     * 단일 Redis 노드 전제. 클러스터 사용 시 두 키의 슬롯 조정 필요.
      *
-     * <p>함정: Redis Cluster에서는 구·신 키의 {@code tokenId}가 달라 슬롯이 갈리고 스크립트가
-     * CROSSSLOT으로 실패. 단일 노드 전제이며, 옮기려면 키에 해시 태그를 넣어야 함.
-     *
-     * @throws BusinessException 제시된 토큰이 저장된 값과 다르거나 이미 폐기됐을 때, 또는 교체를
-     *     완료할 수 없을 때
+     * @throws BusinessException 저장값과 토큰이 다르거나 교체에 실패한 경우
      */
     public void rotate(RefreshTokenClaims claims, String presentedToken, IssuedTokens newTokens) {
         Long swapped;
@@ -101,19 +87,12 @@ public class RefreshTokenStore {
         }
     }
 
-    /**
-     * 리프레시 토큰 폐기.
-     *
-     * <p>키가 없어도 성공. 폐기의 목표 상태가 "그 토큰을 쓸 수 없음"이고 이미 달성돼 있으므로,
-     * 재로그아웃이나 재발급 뒤 로그아웃을 오류로 만들지 않음.
-     *
-     * @throws BusinessException 폐기를 완료할 수 없을 때
-     */
+    /** 리프레시 토큰 폐기. 키가 없어도 목표 상태가 달성된 것으로 처리. */
     public void revoke(RefreshTokenClaims claims) {
         try {
             redisTemplate.delete(key(claims.memberId(), claims.tokenId()));
         } catch (DataAccessException e) {
-            // 성공을 반환하면 클라이언트는 폐기됐다고 믿지만 토큰은 TTL까지 재발급에 쓸 수 있음.
+            // 성공을 반환하면 폐기되지 않은 토큰이 TTL까지 재발급에 사용됨.
             throw new BusinessException(ErrorCode.AUTH_TOKEN_REVOKE_FAILED);
         }
     }
@@ -122,13 +101,7 @@ public class RefreshTokenStore {
         return KEY_PREFIX + memberId + ":" + tokenId;
     }
 
-    /**
-     * 저장용 단방향 변환.
-     *
-     * <p>비밀번호와 달리 salt와 반복 해시를 쓰지 않음. 대상이 사람이 고른 문자열이 아니라 서명된
-     * 고엔트로피 토큰이라 사전 공격 대상이 아니고, 재발급마다 전달된 토큰으로 같은 해시를 다시
-     * 계산해 대조해야 함.
-     */
+    /** 서명된 고엔트로피 토큰을 저장하기 위한 단방향 변환. */
     static String hash(String refreshToken) {
         return Sha256.hex(refreshToken);
     }

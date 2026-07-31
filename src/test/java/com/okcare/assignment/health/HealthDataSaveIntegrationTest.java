@@ -24,7 +24,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
 
 /**
- * 과제가 제공한 네 JSON을 실제 MySQL에 저장해 개발 계획이 경계 검증으로 요구한
+ * 과제가 제공한 네 JSON을 실제 MySQL에 저장.
  * 저장·재전송·변경·권한을 확인.
  *
  * <p>인메모리 DB로 바꾸면 UNIQUE 제약과 {@code DECIMAL} 저장 정밀도라는 검증 대상 자체가 사라짐.

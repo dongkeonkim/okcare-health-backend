@@ -22,11 +22,7 @@ import org.springframework.stereotype.Component;
 /**
  * 액세스·리프레시 토큰 발급.
  *
- * <p>유효시간을 설정이 아니라 상수로 둠. 기능 명세가 응답 필드로 노출하는 계약값이라 배포 없이
- * 바꿀 대상이 아니고, 설정으로 열면 문서와 실제 토큰이 어긋난 채로 기동함.
- *
- * <p>서명 키를 생성자에서 만드는 이유는 안전 기준 위반을 기동 시점에 실패시키기 위함. 발급
- * 시점으로 미루면 첫 로그인 요청에서야 500으로 드러남.
+ * <p>TTL은 외부 응답 계약으로 고정하고 서명 키는 기동 시점에 검증.
  */
 @Component
 public class JwtTokenProvider {
@@ -46,10 +42,9 @@ public class JwtTokenProvider {
     }
 
     /**
-     * 회원 한 명에 대한 토큰 쌍 발급.
+     * 토큰 쌍 발급.
      *
-     * <p>두 토큰의 {@code iat}를 한 번 읽은 같은 시각으로 맞춤. 각자 시각을 읽으면 만료값이
-     * 요청 처리 시간만큼 어긋남.
+     * <p>두 토큰의 발급 시각을 동일하게 유지.
      */
     public IssuedTokens issue(long memberId) {
         String tokenId = UUID.randomUUID().toString();
@@ -89,8 +84,7 @@ public class JwtTokenProvider {
     public long parseAccessToken(String token) {
         Claims claims = parseClaims(token, ErrorCode.AUTH_ACCESS_TOKEN_INVALID);
 
-        // jti가 있으면 리프레시 토큰. 헤더에 넣어 인증하는 것을 막음. 허용하면 14일 토큰으로
-        // 15분 액세스 토큰의 권한을 계속 행사할 수 있음.
+        // 리프레시 토큰을 액세스 인증에 사용하는 경로 차단.
         if (claims.getId() != null) {
             throw new BusinessException(ErrorCode.AUTH_ACCESS_TOKEN_INVALID);
         }
@@ -99,16 +93,9 @@ public class JwtTokenProvider {
     }
 
     /**
-     * 서명과 만료 검증.
+     * 서명·만료 검증.
      *
-     * <p>{@code parseSignedClaims}가 {@code alg: none} 거부 수단. 서명 없는 토큰은 JWS가 아니라
-     * 이 호출에서 걸림. 서명을 요구하지 않는 파싱 메서드로 바꾸면 위조 토큰이 통과.
-     *
-     * <p>파서에도 발급과 같은 {@link Clock}을 넘김. 시스템 시각을 쓰면 만료 검증을 테스트에서
-     * 고정할 수 없음.
-     *
-     * <p>예외 종류를 오류 코드로 옮기지 않음. 만료와 위조를 구분해 응답하면 그 토큰이 한때
-     * 유효했는지 알려 주게 됨.
+     * <p>주입한 {@link Clock}을 사용하고 만료·위조는 같은 오류로 통합.
      */
     private Claims parseClaims(String token, ErrorCode onFailure) {
         try {
@@ -143,8 +130,7 @@ public class JwtTokenProvider {
                         .issuedAt(Date.from(issuedAt))
                         .expiration(Date.from(issuedAt.plus(ttl)));
 
-        // 빌더에 null을 넘겼을 때 클레임을 지우는지 그대로 담는지가 라이브러리 구현에 달려
-        // 있어 호출 자체를 건너뜀.
+        // 라이브러리의 null claim 처리에 의존하지 않는 분기.
         if (tokenId != null) {
             builder.id(tokenId);
         }
@@ -153,12 +139,8 @@ public class JwtTokenProvider {
     }
 
     /**
-     * 안전 기준을 검사한 서명 키 생성.
-     *
-     * <p>길이 검사를 {@code Keys.hmacShaKeyFor}의 예외에 맡기지 않음. 그 메시지는 영어로 비트 수만
-     * 알려 주고 어느 설정을 어떻게 고쳐야 하는지 가리키지 않음.
-     *
-     * <p>어느 실패 경로에서도 secret 값을 메시지에 담지 않음. 기동 실패 로그로 새어 나감.
+     * 서명 키의 형식·최소 길이를 검증.
+     * secret 자체는 오류에 포함하지 않음.
      */
     private static SecretKey toSigningKey(String base64Secret) {
         byte[] decoded;

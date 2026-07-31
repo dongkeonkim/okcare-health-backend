@@ -16,24 +16,18 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * 활동 레코드 멱등 저장.
- *
- * <p>연결 해석과 다른 트랜잭션이어야 해서 별도 빈. 이유는 {@link HealthConnectionResolver}에 있음.
- *
- * <p>{@code INSERT ... ON DUPLICATE KEY UPDATE}의 affected rows로 카운트를 얻지 않음. 그 값은
- * 드라이버 설정과 {@code ON UPDATE CURRENT_TIMESTAMP}의 무변경 판정에 좌우되어, 응답 카운트의
- * 정확성을 프레임워크 세부에 맡기게 됨. 사전 조회로 분류하면 카운트가 명시적이고, 동시 요청이
- * 만든 중복은 UNIQUE 제약이 최종적으로 막음.
- */
+     * 활동 레코드 멱등 저장.
+     *
+     * <p>연결 해석과 별도 트랜잭션에서 사전 분류.
+     * 동시 요청은 UNIQUE 제약으로 최종 보장.
+     */
 @Service
 public class HealthActivityRecordWriter {
 
     /**
-     * 한 번에 조회·저장할 레코드 수.
+     * 영속성 컨텍스트와 IN 조건 크기를 제한하는 batch 크기.
      *
-     * <p>배치를 나누는 목적은 IN 조건의 크기와 영속성 컨텍스트가 무한히 커지지 않게 하는 것.
-     * {@code id}가 {@code AUTO_INCREMENT}라 Hibernate가 insert 문 배치를 비활성화하므로, 이 값을
-     * 키워도 왕복 횟수는 줄지 않음.
+     * <p>AUTO_INCREMENT insert batch는 사용하지 않음.
      */
     private static final int BATCH_SIZE = 500;
 
@@ -57,10 +51,7 @@ public class HealthActivityRecordWriter {
      */
     @Transactional
     public Counts write(long connectionId, NormalizedPayload payload) {
-        // 같은 연결에 동시에 저장하는 요청을 직렬화. 잠그지 않으면 두 요청이 서로 커밋 전에 기존
-        // 레코드를 조회해 양쪽이 신규로 분류하고, 패자가 활동 식별자 UNIQUE 위반을 받아 정상
-        // 재전송이 500으로 나감. 위반을 잡아 재시도하는 방법도 있지만 몇 번이면 충분한지가 동시
-        // 요청 수에 달려 답이 없음. 같은 recordkey의 저장은 본래 직렬이어도 되는 작업.
+        // 같은 연결의 저장을 직렬화해 활동 식별자 UNIQUE 위반 방지.
         connectionRepository.findByIdForUpdate(connectionId);
 
         Counts counts = new Counts();
@@ -85,9 +76,7 @@ public class HealthActivityRecordWriter {
                 }
             }
 
-            // flush만으로는 관리 대상이 그대로 남아 다음 flush의 더티 체크 범위가 계속 커짐.
-            // clear까지 해야 batch로 나눈 의미가 있음. 이 시점에 갱신을 이미 반영했으므로 준영속이
-            // 되어도 잃는 변경이 없음.
+            // batch마다 flush와 clear로 더티 체크 범위 제한.
             entityManager.flush();
             entityManager.clear();
         }
@@ -96,10 +85,8 @@ public class HealthActivityRecordWriter {
     }
 
     /**
-     * 같은 식별자가 여러 번 들어오면 마지막 항목만 남김.
-     *
-     * <p>마지막 값이 남는 것은 반복 {@code put}이 덮어쓰기 때문. {@code LinkedHashMap}은 처리
-     * 순서를 첫 등장 순서로 고정하는 역할만 하며, 그래야 batch 분할 결과가 요청마다 흔들리지 않음.
+     * 요청 내 동일 식별자 접기.
+     * 마지막 측정값과 첫 등장 순서 유지.
      */
     private static List<NormalizedRecord> collapseDuplicates(NormalizedPayload payload) {
         Map<NormalizedRecord.Identity, NormalizedRecord> byIdentity = new LinkedHashMap<>();

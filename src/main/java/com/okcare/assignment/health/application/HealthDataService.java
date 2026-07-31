@@ -9,9 +9,8 @@ import org.springframework.stereotype.Service;
 
 /**
  * 건강활동 데이터 저장 조립.
- *
- * <p>{@code @Transactional}을 붙이지 않음. 연결 해석과 레코드 저장이 서로 다른 트랜잭션이어야
- * 하므로 여기서 트랜잭션을 열면 둘이 하나로 합쳐짐. 정규화도 트랜잭션 밖에서 끝나야 함.
+ * 연결 해석·정규화·레코드 저장의 트랜잭션 경계를 유지하기 위해
+ * 비트랜잭션으로 동작.
  */
 @Service
 public class HealthDataService {
@@ -40,24 +39,14 @@ public class HealthDataService {
         long connectionId = resolveConnection(memberId, payload);
         HealthActivityRecordWriter.Counts counts = recordWriter.write(connectionId, payload);
 
-        // 쓰기 트랜잭션이 커밋된 뒤에 무효화. 이 클래스에 트랜잭션이 없어 write가 반환한 시점이
-        // 이미 커밋 후임. 커밋 전에 증가시키면 그 틈의 조회가 저장 전 값을 새 version 키에 실어
-        // TTL 내내 낡은 값이 나감.
+        // write 커밋 뒤 version 증가. 이전 값을 새 version에 캐시하는 경로 차단.
         cache.invalidate(payload.recordKey());
 
         return new SaveResult(
                 payload.received(), counts.inserted(), counts.updated(), counts.duplicated());
     }
 
-    /**
-     * 동시 생성으로 UNIQUE 위반이 나면 한 번 다시 시도.
-     *
-     * <p>재시도는 대개 조회로 끝남. 앞선 요청이 커밋했으면 그 행이 보이므로 삽입하지 않음.
-     *
-     * <p>승자가 되돌아가고 그 틈에 또 다른 요청이 같은 {@code recordkey}를 만들면 재시도도 같은
-     * 예외를 받음. 최초 저장이 동시에 세 번 이상 겹쳐야 하는 조건이라 재시도 횟수를 늘리지 않음.
-     * 몇 번이면 충분한지에는 답이 없고, 늘려도 같은 틈이 남음.
-     */
+    /** 동시 생성 UNIQUE 위반 시 새 트랜잭션에서 연결을 한 번 재조회. */
     private long resolveConnection(long memberId, NormalizedPayload payload) {
         try {
             return connectionResolver.resolve(memberId, payload);

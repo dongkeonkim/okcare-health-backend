@@ -294,8 +294,7 @@ class HealthDataNormalizerTest {
     }
 
     /**
-     * {@code toPlainString}으로 왕복시키지 않고 그대로 넘김. 왕복하면 {@code 0E+13}의 음수 scale이
-     * 사라져 그 경계를 지나지 않는 채로 테스트가 통과함.
+     * 극단적인 {@code BigDecimal} scale을 변환 없이 전달해 범위 검증 경계 확인.
      */
     private static HealthDataRequest withSteps(BigDecimal steps) {
         return new HealthDataRequest(

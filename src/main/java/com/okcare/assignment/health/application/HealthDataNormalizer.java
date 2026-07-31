@@ -19,12 +19,7 @@ import org.springframework.stereotype.Component;
 
 /**
  * 공급자별 차이를 내부 모델로 흡수.
- *
- * <p>DB 트랜잭션 밖에서 호출. 파싱과 해시 계산은 요청 크기에 비례해 시간이 걸리므로 트랜잭션에
- * 넣으면 커넥션을 그만큼 오래 잡음.
- *
- * <p>Bean Validation이 걸러내지 못하는 실패만 여기서 봄. 필드 존재와 길이는 요청 DTO의 제약이
- * 이미 검사하고 {@code fieldErrors}가 달린 400을 만듦. 여기서 나오는 400에는 필드 목록이 없음.
+ * 파싱과 해시는 DB 트랜잭션 밖에서 수행.
  */
 @Component
 public class HealthDataNormalizer {
@@ -32,22 +27,13 @@ public class HealthDataNormalizer {
     private static final String CALORIES_UNIT = "kcal";
     private static final String DISTANCE_UNIT = "km";
 
-    /**
-     * 측정값 저장 소수 자릿수. {@code health_activity_records}의 {@code DECIMAL(24, 12)}와 같은 값.
-     *
-     * <p>MySQL의 암묵적 반올림에 맡기지 않고 여기서 명시적으로 맞춤. 맡기면 저장값과
-     * {@code payloadHash}의 대상이 달라져, 12자리 뒤만 다른 재전송이 행은 그대로인데
-     * {@code updated}로 세어짐.
-     *
-     * <p>12자리로 충분한 근거는 출력 계약. 집계 응답은 걸음수를 정수, 칼로리·거리를 소수점 여섯
-     * 자리로 반올림하므로 한 달 최대 757건을 더해도 누적 오차가 출력 단위보다 세 자릿수 이상 작음.
-     */
+    /** 저장소 {@code DECIMAL(24, 12)}와 맞추는 측정값 소수 자릿수. */
     private static final int STORED_SCALE = 12;
 
     /** {@code DECIMAL(24, 12)}의 정수부 자릿수. 초과하면 MySQL이 범위 초과로 거부해 500이 됨. */
     private static final int MAX_INTEGER_DIGITS = 12;
 
-    /** 저장 가능한 절댓값의 상한. 이 값 자체는 정수부가 한 자리 늘어나므로 포함하지 않음. */
+    /** 저장 가능한 절댓값의 배타적 상한. */
     private static final BigDecimal EXCLUSIVE_LIMIT = BigDecimal.TEN.pow(MAX_INTEGER_DIGITS);
 
     private final ZoneId businessZone;
@@ -109,19 +95,10 @@ public class HealthDataNormalizer {
     }
 
     /**
-     * 저장 정밀도로 맞춤.
+     * 저장 정밀도로 양자화하고 범위를 검사.
      *
-     * <p>소수 자릿수는 제약하지 않고 반올림. 공급자가 보내는 20자리는 총합을 구간에 나눌 때 생긴
-     * 부동소수점 잡음이라 거절할 이유가 없고, 거절하면 과제가 준 입력이 400이 됨.
-     *
-     * <p>정수부는 거절. MySQL이 범위 초과로 insert를 실패시켜 400이어야 할 것이 500이 됨.
-     *
-     * <p>자릿수를 {@code precision() - scale()}로 세지 않고 절댓값을 비교. 표현 속성으로 세면 세
-     * 가지가 어긋남. 0은 {@code precision}이 항상 1이라 {@code 0E+13}처럼 음수 scale이면 없는
-     * 정수부가 생겨 저장 가능한 값을 거절. 아주 큰 음수 scale에서는 뺄셈 자체가 overflow.
-     *
-     * <p>양자화 뒤에 한 번 더 검사. {@code 999999999999.9999999999995}는 검사 시점에 12자리인데
-     * 반올림 carry로 13자리가 되어, 통과시키면 막으려던 500이 그대로 발생.
+     * <p>소수부는 반올림하고 정수부 초과는 애플리케이션에서 거부.
+     * 절댓값과 반올림 carry를 모두 검사해 DB 범위 오류의 500 노출 방지.
      */
     private static BigDecimal toStoredScale(BigDecimal value) {
         requireWithinRange(value);
@@ -130,8 +107,7 @@ public class HealthDataNormalizer {
         try {
             quantized = value.setScale(STORED_SCALE, RoundingMode.HALF_UP);
         } catch (ArithmeticException e) {
-            // 1E-999999999처럼 절댓값은 작지만 scale이 극단적으로 큰 값. 범위 검사는 통과하고
-            // setScale이 내부 BigInteger 한계를 넘어 실패함. 잡지 않으면 400이 500이 됨.
+            // 극단적으로 큰 scale에서 setScale이 실패해도 요청 오류로 변환.
             throw new BusinessException(ErrorCode.HEALTH_DATA_INVALID);
         }
 
@@ -150,7 +126,7 @@ public class HealthDataNormalizer {
         try {
             return provider.toInstant(value, businessZone);
         } catch (DateTimeParseException e) {
-            // 원본 문자열을 예외에 담지 않음. 오류 응답과 로그로 요청 payload가 새어 나감.
+            // 원본 문자열은 오류 응답과 로그에 남기지 않음.
             throw new BusinessException(ErrorCode.HEALTH_DATA_INVALID);
         }
     }
@@ -170,15 +146,8 @@ public class HealthDataNormalizer {
     }
 
     /**
-     * 측정값 변경 감지용 해시.
-     *
-     * <p>공급자가 알린 갱신 시각을 넣지 않음. 넣으면 측정값이 같은 재전송이 변경으로 판정됨.
-     *
-     * <p>{@code stripTrailingZeros}로 표기를 통일. {@code 54}와 {@code 54.0}은 같은 값인데
-     * {@code toString}이 달라, 통일하지 않으면 공급자가 표기만 바꿔도 변경으로 읽힘.
-     *
-     * <p>저장 정밀도로 맞춘 값에서 계산. 원본에서 계산하면 12자리 뒤만 다른 재전송이 저장 행은
-     * 그대로인데 {@code updated}로 세어짐.
+     * 측정값과 단위를 저장 정밀도로 정규화해 변경 감지용 해시 생성.
+     * 갱신 시각은 제외.
      */
     private static String payloadHash(
             BigDecimal steps,
