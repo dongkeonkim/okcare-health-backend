@@ -133,7 +133,9 @@ class HealthAggregationCacheTest {
     void keepsScaleOnRoundTrip() throws Exception {
         BigDecimal steps = new BigDecimal("7243.499999999900");
         BigDecimal zero = new BigDecimal("0.000000000000");
-        List<MonthlyTotal> stored = List.of(new MonthlyTotal(MONTH_FROM, steps, zero, steps));
+        // 세 값을 서로 다르게 둠. 같은 값을 쓰면 한 측정값만 어긋나도 드러나지 않음.
+        BigDecimal distance = new BigDecimal("5.419490123456");
+        List<MonthlyTotal> stored = List.of(new MonthlyTotal(MONTH_FROM, steps, zero, distance));
         given(valueOperations.get("health:cache-version:" + RECORD_KEY)).willReturn(null);
         given(valueOperations.get(startsWith("health:monthly:")))
                 .willReturn(objectMapper.writeValueAsString(stored));
@@ -146,6 +148,7 @@ class HealthAggregationCacheTest {
         assertThat(returned.steps()).isEqualTo(steps);
         assertThat(returned.calories()).isEqualTo(zero);
         assertThat(returned.calories().scale()).isEqualTo(12);
+        assertThat(returned.distance()).isEqualTo(distance);
         assertThat(returned.month()).isEqualTo(MONTH_FROM);
     }
 

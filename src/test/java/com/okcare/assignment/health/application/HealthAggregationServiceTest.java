@@ -214,21 +214,19 @@ class HealthAggregationServiceTest {
     @DisplayName("월간도 저장소가 준 합계를 반올림하지 않고 그대로 넘긴다")
     void neverRoundsMonthlyBeforeReturning() {
         givenOwnedConnection();
+        BigDecimal steps = new BigDecimal("124783.4999999999");
         BigDecimal calories = new BigDecimal("5002.4994391234");
+        // 세 값을 서로 다르게 둠. 같은 값을 쓰면 한 측정값만 조기 반올림해도 단언이 통과함.
+        BigDecimal distance = new BigDecimal("94.3420951234");
         given(recordRepository.sumMonthlyTotals(any(), any(), any()))
-                .willReturn(
-                        List.of(
-                                new MonthlyTotal(
-                                        FROM_MONTH,
-                                        new BigDecimal("124783.4999999999"),
-                                        calories,
-                                        calories)));
+                .willReturn(List.of(new MonthlyTotal(FROM_MONTH, steps, calories, distance)));
 
         MonthlyTotal returned =
                 service.monthly(MEMBER_ID, RECORD_KEY, FROM_MONTH, FROM_MONTH).get(0);
 
+        assertThat(returned.steps()).isEqualTo(steps);
         assertThat(returned.calories()).isEqualTo(calories);
-        assertThat(returned.steps()).isEqualTo(new BigDecimal("124783.4999999999"));
+        assertThat(returned.distance()).isEqualTo(distance);
     }
 
     @Test
