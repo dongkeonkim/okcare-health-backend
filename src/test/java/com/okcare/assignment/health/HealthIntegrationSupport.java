@@ -1,6 +1,7 @@
 package com.okcare.assignment.health;
 
 import com.okcare.assignment.IntegrationSupport;
+import com.okcare.assignment.RegressionBaseline;
 import com.okcare.assignment.health.infrastructure.HealthActivityRecordRepository;
 import com.okcare.assignment.health.infrastructure.HealthConnectionRepository;
 import java.io.IOException;
@@ -61,6 +62,17 @@ public abstract class HealthIntegrationSupport extends IntegrationSupport {
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body));
+    }
+
+    /**
+     * 회귀 기준 월간 표의 첫 행 {@code recordkey}.
+     *
+     * <p>{@code RegressionBaseline}이 표의 순서를 보존하므로 실행마다 같은 값. 보존하지 않으면 이
+     * 헬퍼가 실행마다 다른 recordkey를 돌려주고, fixture마다 행 수가 1,066~1,497로 달라 실행 계획
+     * 단언이 간헐적으로 흔들림.
+     */
+    protected static String firstRecordKey() {
+        return RegressionBaseline.load().monthlyTotals().keySet().iterator().next().recordKey();
     }
 
     /** 파일 이름으로 정렬. 회귀 단언이 읽는 순서에 의존하므로 디렉터리 나열 순서에 맡기지 않음. */

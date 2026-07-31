@@ -584,17 +584,6 @@ class HealthAggregationIntegrationTest extends HealthIntegrationSupport {
                 .getId();
     }
 
-    /**
-     * 회귀 기준 월간 표의 첫 행 {@code recordkey}.
-     *
-     * <p>{@code RegressionBaseline}이 표의 순서를 보존하므로 실행마다 같은 값. 보존하지 않으면 이
-     * 헬퍼가 실행마다 다른 recordkey를 돌려주고, fixture마다 행 수가 1,066~1,497로 달라 실행 계획
-     * 단언이 간헐적으로 흔들린다.
-     */
-    private static String firstRecordKey() throws Exception {
-        return RegressionBaseline.load().monthlyTotals().keySet().iterator().next().recordKey();
-    }
-
     private static BigDecimal sum(
             List<DailyTotal> totals, java.util.function.Function<DailyTotal, BigDecimal> field) {
 
