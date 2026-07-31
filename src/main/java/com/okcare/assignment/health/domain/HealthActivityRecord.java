@@ -122,12 +122,4 @@ public class HealthActivityRecord {
     public BigDecimal getDistance() {
         return distance;
     }
-
-    public LocalDate getActivityDate() {
-        return activityDate;
-    }
-
-    public String getPayloadHash() {
-        return payloadHash;
-    }
 }

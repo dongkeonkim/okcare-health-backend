@@ -37,7 +37,6 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         this.clock = clock;
     }
 
-    /** 요청 DTO 검증 실패를 400과 필드 목록으로 변환. */
     @Override
     protected ResponseEntity<Object> handleMethodArgumentNotValid(
             MethodArgumentNotValidException ex,
@@ -95,7 +94,6 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
                 .body(ErrorResponse.of(errorCode, traceId, clock.instant()));
     }
 
-    /** 기능 계약이 정의한 실패를 해당 상태로 변환. */
     @ExceptionHandler(BusinessException.class)
     public ResponseEntity<ErrorResponse> handleBusiness(BusinessException e) {
         String traceId = newTraceId();
@@ -105,7 +103,6 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
                 .body(ErrorResponse.of(e.errorCode(), traceId, clock.instant()));
     }
 
-    /** 예상하지 못한 오류를 500으로 변환. */
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ErrorResponse> handleUnexpected(Exception e) {
         String traceId = newTraceId();

@@ -25,8 +25,6 @@ public interface HealthActivityRecordRepository
     List<HealthActivityRecord> findByConnectionIdAndPeriodStartUtcIn(
             Long connectionId, Collection<Instant> periodStarts);
 
-    long countByConnectionId(Long connectionId);
-
     /**
      * 날짜별 측정값 합계. 반올림하지 않은 값을 돌려줌.
      *

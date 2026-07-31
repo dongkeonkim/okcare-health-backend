@@ -80,8 +80,4 @@ public class HealthConnection {
     public Long getId() {
         return id;
     }
-
-    public String getRecordKey() {
-        return recordKey;
-    }
 }
