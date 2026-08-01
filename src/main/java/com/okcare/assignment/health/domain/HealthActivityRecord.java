@@ -11,12 +11,11 @@ import java.time.Instant;
 import java.time.LocalDate;
 
 /**
- * 정규화한 건강활동 측정 레코드.
- *
- * <p>{@code connectionId}를 식별자로 둔 이유는 {@link HealthConnection}과 같음.
+ * {@code connectionId}만 매핑해 활동 저장과 집계에서 연결 엔티티 로딩 방지.
+ * 참조 정합성은 외래 키로 보장.
  *
  * <p>{@code precision}과 {@code scale}을 명시해 두면 스키마와 어긋날 때 Hibernate의
- * {@code ddl-auto: validate}가 기동 시점에 잡음.
+ * {@code ddl-auto: validate}가 기동 시점에 불일치 검출.
  */
 @Entity
 @Table(name = "health_activity_records")

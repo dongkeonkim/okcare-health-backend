@@ -4,10 +4,8 @@ import java.math.BigDecimal;
 import java.time.YearMonth;
 
 /**
- * 반올림하지 않은 월별 합계.
- *
- * <p>일별 합계를 다시 더해 만들지 않고 전용 쿼리가 원본 행에서 직접 집계. 이유는
- * {@link DailyTotal}과 같음.
+ * 일간 응답의 반올림값을 더하지 않고 저장된 측정값을 전용 쿼리로 직접 합산.
+ * 일별 반올림 오차 누적 방지.
  */
 public record MonthlyTotal(
         YearMonth month, BigDecimal steps, BigDecimal calories, BigDecimal distance) {

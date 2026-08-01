@@ -71,7 +71,6 @@ public class HealthConnection {
                 payload.sourceMode());
     }
 
-    /** {@code longValue()}를 명시. 그냥 비교하면 읽는 사람이 참조 비교로 오독. */
     public boolean ownedBy(long memberId) {
         return this.memberId.longValue() == memberId;
     }

@@ -1,10 +1,7 @@
 #!/usr/bin/env python3
-"""문서를 수정한 뒤 상대 링크와 줄 끝 공백을 검사하는 PostToolUse 훅.
+"""문서 수정 후 상대 링크와 줄 끝 공백을 검사하는 PostToolUse 훅.
 
-기준: docs/운영/문서_작성_가이드.md §3
-
-PostToolUse는 도구가 이미 실행된 뒤에 동작하므로 차단이 아니라 수정 요청 역할을
-한다. 문제를 찾으면 exit 2로 stderr 내용을 Claude에게 전달한다.
+PostToolUse는 도구 실행 후에 동작하므로 차단 대신 표준 오류로 수정 요청 전달.
 """
 
 import json
@@ -12,7 +9,6 @@ import os
 import re
 import sys
 
-# 검사 대상. 이 경로 밖의 마크다운은 건드리지 않는다.
 TARGET_PREFIXES = ("docs/", ".claude/")
 TARGET_FILES = ("README.md", "AGENTS.md", "CLAUDE.md")
 
@@ -24,15 +20,13 @@ MAX_REPORT = 20
 
 
 def slugify(heading):
-    """GitHub 방식으로 제목을 앵커 슬러그로 바꾼다. 한글은 그대로 남는다."""
     text = heading.strip().lower()
-    text = re.sub(r"[`*_~]", "", text)                # 인라인 서식 제거
-    text = re.sub(r"[^\w\s-]", "", text)              # 구두점 제거
+    text = re.sub(r"[`*_~]", "", text)
+    text = re.sub(r"[^\w\s-]", "", text)
     return re.sub(r"\s+", "-", text.strip())
 
 
 def anchors_of(path):
-    """마크다운 파일의 제목에서 앵커 슬러그 집합을 만든다."""
     try:
         with open(path, encoding="utf-8") as handle:
             lines = handle.read().splitlines()
@@ -54,9 +48,8 @@ def anchors_of(path):
 
 
 def check_link(source, target):
-    """상대 링크가 실제 파일과 앵커를 가리키는지 확인한다."""
     if SCHEME_RE.match(target) or target.startswith("//"):
-        return ""                                     # 외부 링크는 검사하지 않는다
+        return ""
 
     path_part, _, anchor = target.partition("#")
     if path_part:
@@ -73,7 +66,6 @@ def check_link(source, target):
 
 
 def target_relpath(file_path):
-    """검사 대상이면 저장소 기준 상대 경로를, 아니면 None을 돌려준다."""
     if not file_path or not file_path.endswith(".md"):
         return None
     if not os.path.isfile(file_path):
@@ -96,7 +88,7 @@ def main():
     try:
         payload = json.load(sys.stdin)
     except (ValueError, OSError):
-        return 0                                      # 입력을 읽지 못하면 통과시킨다
+        return 0  # 훅 장애가 문서 편집을 막지 않도록 검사 생략.
 
     file_path = (payload.get("tool_input") or {}).get("file_path")
     rel = target_relpath(file_path)
@@ -114,7 +106,7 @@ def main():
         if line != line.rstrip():
             problems.append("%s:%d 줄 끝 공백" % (rel, number))
         if fenced:
-            continue                                  # 코드 블록 안의 링크는 검사하지 않는다
+            continue
         for target in LINK_RE.findall(line):
             problem = check_link(file_path, target)
             if problem:
@@ -123,7 +115,7 @@ def main():
     if not problems:
         return 0
 
-    print("문서 검사 실패 (문서_작성_가이드 §3):", file=sys.stderr)
+    print("문서 검사 실패:", file=sys.stderr)
     for problem in problems[:MAX_REPORT]:
         print("  - %s" % problem, file=sys.stderr)
     if len(problems) > MAX_REPORT:

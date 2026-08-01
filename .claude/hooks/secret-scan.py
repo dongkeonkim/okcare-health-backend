@@ -1,16 +1,11 @@
 #!/usr/bin/env python3
-"""커밋 직전 staged 변경에서 자격 증명과 키를 검사하는 PreToolUse 훅.
+"""커밋 직전 스테이징된 변경에서 자격 증명과 키를 검사하는 PreToolUse 훅.
 
-기준: AGENTS.md 「항상 적용하는 원칙」, docs/운영/Git_작업_가이드.md §2
-
-권한 설정의 ask 규칙은 사용자 승인을 받을 뿐이고, 긴 diff에서 사람이 secret을
-찾아내지는 못한다. 실패 모드가 다르므로 훅으로 따로 막는다.
-
-오탐이 잦으면 훅을 꺼버리게 되므로 확실한 패턴만 검사한다. 일반적인
-`password: "..."` 대입은 기능_명세의 예시 요청과 구분할 수 없어 제외했다.
-fixtures/health의 건강 데이터는 과제가 제공한 회귀 입력이므로 대상이 아니다.
-
-발견하면 exit 2로 커밋을 차단한다.
+승인 규칙만으로는 긴 diff의 비밀정보를 검출할 수 없어 별도 검사.
+오탐으로 훅 사용이 중단되지 않도록 확실한 패턴만 검사.
+일반적인 비밀번호 대입은 예시 요청과 구분하기 어려워 제외.
+과제가 제공한 건강 데이터 fixture도 검사 대상에서 제외.
+발견 시 커밋 차단.
 """
 
 import json
@@ -38,7 +33,6 @@ MAX_REPORT = 10
 
 
 def git(args):
-    """git 명령을 실행하고 표준 출력을 돌려준다. 실패하면 None."""
     try:
         done = subprocess.run(
             ["git"] + args,
@@ -54,7 +48,6 @@ def git(args):
 
 
 def staged_file_findings():
-    """staged 파일 이름 자체가 위험한 경우를 찾는다."""
     listing = git(["diff", "--cached", "--name-only", "--diff-filter=ACMR"])
     if not listing:
         return []
@@ -72,7 +65,6 @@ def staged_file_findings():
 
 
 def staged_content_findings():
-    """staged diff에서 추가된 줄만 검사한다."""
     diff = git(["diff", "--cached", "--unified=0"])
     if not diff:
         return []
@@ -94,7 +86,6 @@ def staged_content_findings():
 
 
 def is_commit_command(payload):
-    """git commit 호출인지 확인한다. if 필터가 이미 걸러주지만 한 번 더 본다."""
     command = (payload.get("tool_input") or {}).get("command") or ""
     return re.search(r"\bgit\s+(-\S+\s+|--\S+(=\S+)?\s+)*commit\b", command) is not None
 
@@ -113,7 +104,7 @@ def main():
         return 0
 
     unique = list(dict.fromkeys(findings))
-    print("커밋 차단: staged 변경에서 자격 증명으로 보이는 내용을 찾았습니다.", file=sys.stderr)
+    print("커밋 차단: 스테이징된 변경에서 자격 증명으로 보이는 내용을 찾았습니다.", file=sys.stderr)
     for finding in unique[:MAX_REPORT]:
         print("  - %s" % finding, file=sys.stderr)
     if len(unique) > MAX_REPORT:

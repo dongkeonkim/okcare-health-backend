@@ -25,16 +25,13 @@ import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
 
 /**
- * 과제가 제공한 네 JSON을 실제 MySQL에 저장.
- * 저장·재전송·변경·권한을 확인.
- *
- * <p>인메모리 DB로 바꾸면 UNIQUE 제약과 {@code DECIMAL} 저장 정밀도라는 검증 대상 자체가 사라짐.
- * 인증도 실제 필터를 거쳐야 보호 경로 계약이 함께 검증됨.
+ * 인메모리 DB로 바꾸면 UNIQUE 제약과 {@code DECIMAL} 저장 정밀도 검증 불가.
+ * 실제 인증 필터를 거쳐야 보호 경로 계약도 함께 검증 가능.
  */
 class HealthDataSaveIntegrationTest extends HealthIntegrationSupport {
 
     @Test
-    @DisplayName("네 JSON을 저장하면 회귀 기준의 수신 건수만큼 새로 저장된다")
+    @DisplayName("네 입력 파일을 저장하면 회귀 기준의 수신 건수만큼 새로 저장된다")
     void savesEveryFixtureRecord() throws Exception {
         String accessToken = accessTokenOf("health-save@example.com");
         int expected = RegressionBaseline.load().count("총 수신 레코드");
@@ -61,7 +58,7 @@ class HealthDataSaveIntegrationTest extends HealthIntegrationSupport {
 
         // 저장 방식 전환 판단이 테스트 출력에 드러나게 함. JPA는 AUTO_INCREMENT 때문에 insert 문을
         // 배치하지 못하므로, 느려지면 JdbcTemplate 배치로 옮길 신호.
-        System.out.printf("네 JSON 저장 소요: %dms (%d건)%n", elapsedMillis, expected);
+        System.out.printf("네 입력 파일 저장 소요: %dms (%d건)%n", elapsedMillis, expected);
     }
 
     @Test
@@ -210,9 +207,8 @@ class HealthDataSaveIntegrationTest extends HealthIntegrationSupport {
     @Test
     @DisplayName("같은 회원이 같은 recordkey로 동시에 저장해도 두 요청 모두 성공한다")
     void concurrentFirstSaveBySameMemberSucceedsBoth() throws Exception {
-        // 두 writer가 서로 커밋 전에 기존 행을 조회하면 양쪽이 insert로 분류하고, 패자가
-        // uk_health_activity_records_identity 위반을 받음. 그 위반을 다루지 않으면 정상 재전송이
-        // 500으로 나감. UNIQUE는 중복 행을 막지만 응답 계약까지 지켜 주지는 않음.
+        // 연결 행 잠금이 없으면 두 요청이 같은 활동을 신규로 분류해 나중 요청이 UNIQUE 위반.
+        // DB 제약은 중복 행만 막고 200 응답 계약은 보장하지 못함.
         String accessToken = accessTokenOf("health-race-same@example.com");
         String body = Files.readString(fixtureFiles().get(0));
 
@@ -225,7 +221,8 @@ class HealthDataSaveIntegrationTest extends HealthIntegrationSupport {
     @Test
     @DisplayName("다른 회원이 같은 recordkey로 동시에 저장하면 한쪽만 성공한다")
     void concurrentFirstSaveByDifferentMembersLeavesOneOwner() throws Exception {
-        // 연결 생성 경쟁의 패자는 새 트랜잭션에서 승자의 연결을 다시 읽고 소유자가 다르므로 409.
+        // 먼저 생성된 연결을 두 번째 요청이 새 트랜잭션에서 다시 조회.
+        // 소유자가 다르므로 409.
         String first = accessTokenOf("health-race-a@example.com");
         String second = accessTokenOf("health-race-b@example.com");
         String body = Files.readString(fixtureFiles().get(0));

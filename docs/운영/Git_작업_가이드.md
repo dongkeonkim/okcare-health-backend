@@ -10,7 +10,7 @@
 - 커밋 전에는 변경 범위, 테스트 결과, `git status`, `git diff`와 Git 사용자 설정을 확인합니다.
 - 관련 없는 사용자 변경을 스테이징하거나 되돌리지 않습니다.
 - secret, 개인 경로와 도구 전용 설정이 포함되지 않았는지 확인합니다.
-- 적용된 Flyway Versioned migration은 수정하지 않고 새 migration으로 전진 처리합니다.
+- 적용된 Flyway Versioned migration은 수정하지 않고 새 migration을 추가해 변경합니다.
 
 ## 3. 커밋 단위
 

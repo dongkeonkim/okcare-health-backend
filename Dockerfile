@@ -1,4 +1,5 @@
-# multi-stage build. 빌드는 JDK, 실행은 JRE 이미지를 써서 최종 이미지에 컴파일러를 남기지 않음.
+# 빌드는 JDK, 실행은 JRE 이미지를 사용하는 다단계 빌드.
+# 최종 이미지에서 컴파일러 제외.
 
 FROM eclipse-temurin:17-jdk AS builder
 WORKDIR /build
@@ -9,8 +10,8 @@ COPY gradlew settings.gradle build.gradle ./
 RUN chmod +x gradlew && ./gradlew --no-daemon dependencies
 
 COPY src src
-# 테스트는 Testcontainers가 Docker 데몬을 필요로 해 이미지 빌드 안에서 실행 불가.
-# 호스트에서 ./gradlew build로 수행.
+# Testcontainers가 Docker 데몬을 요구하므로 이미지 빌드에서는 테스트 제외.
+# 전체 테스트는 호스트의 ./gradlew build로 수행.
 RUN ./gradlew --no-daemon bootJar -x test
 
 FROM eclipse-temurin:17-jre

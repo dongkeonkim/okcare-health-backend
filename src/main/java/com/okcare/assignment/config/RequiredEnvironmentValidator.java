@@ -15,7 +15,6 @@ import org.springframework.core.env.Environment;
 public class RequiredEnvironmentValidator
         implements ApplicationListener<ApplicationEnvironmentPreparedEvent> {
 
-    /** application.yml이 요구하는 설정 이름. */
     private static final List<String> REQUIRED_NAMES =
             List.of(
                     "DB_HOST",

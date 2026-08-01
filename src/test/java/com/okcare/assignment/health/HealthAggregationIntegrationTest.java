@@ -127,8 +127,8 @@ class HealthAggregationIntegrationTest extends HealthIntegrationSupport {
             }
         }
 
-        // 월간 집계를 일간 응답에서 굴려 올리면 안 되는 이유를 코드로 고정. 어긋나는 폭이 걸음
-        // ±1과 소수 여섯째 자리라 눈으로 걸러지지 않고 테스트만 남는 방어 수단.
+        // 일간 응답의 반올림값을 합산하면 회귀 기준과 달라지는 미세 오차.
+        // 육안 검증이 어려워 회귀 테스트로 고정.
         assertThat(mismatched).isNotEmpty();
     }
 
@@ -450,12 +450,7 @@ class HealthAggregationIntegrationTest extends HealthIntegrationSupport {
                         roundedOutput(BigDecimal.ZERO).toPlainString());
     }
 
-    /**
-     * 항목 하나가 직렬화되어야 하는 문자열.
-     *
-     * <p>JSON 트리로 읽으면 trailing zero가 사라질 수 있음.
-     * 전송 문자열 자체로 확인.
-     */
+    /** JSON 트리 비교는 소수부 뒤의 0을 제거하므로 전송 문자열을 직접 비교. */
     private static String expectedItemJson(DailyTotal total) {
         return "{\"date\":\"%s\",\"steps\":%d,\"calories\":%s,\"distance\":%s}"
                 .formatted(

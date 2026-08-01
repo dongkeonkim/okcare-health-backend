@@ -39,9 +39,9 @@ class AuthLogoutIntegrationTest extends IntegrationSupport {
     @DisplayName("프레임워크 기본 /logout 경로는 열려 있지 않다")
     @ValueSource(strings = {"GET", "POST", "PUT", "DELETE"})
     void doesNotExposeFrameworkLogoutPath(String method) throws Exception {
-        // 기본 logout configurer를 끄지 않으면 LogoutFilter가 이 경로를 가로채 인증 없이
-        // /login?logout으로 302를 보냄. 그 필터는 인가 필터보다 앞이라 authenticated() 규칙으로
-        // 막히지 않음.
+        // Spring Security 기본 로그아웃 설정을 끄지 않으면 LogoutFilter가 이 경로를
+        // 가로채 인증 없이 /login?logout으로 302 응답. 인가 필터보다 앞에서 실행되므로
+        // authenticated() 규칙으로 차단 불가.
         mockMvc.perform(request(HttpMethod.valueOf(method), "/logout"))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("AUTH_ACCESS_TOKEN_INVALID"));

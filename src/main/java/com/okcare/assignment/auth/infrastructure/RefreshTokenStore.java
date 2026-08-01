@@ -81,13 +81,13 @@ public class RefreshTokenStore {
             throw new BusinessException(ErrorCode.AUTH_TOKEN_ROTATE_FAILED);
         }
 
-        // 구 키가 없거나 저장된 해시가 다른 경우. 이미 회전됐거나 폐기된 토큰의 재사용.
+        // 기존 토큰 키가 없거나 저장된 해시가 다른 경우. 회전됐거나 폐기된 토큰의 재사용.
         if (!SWAPPED.equals(swapped)) {
             throw new BusinessException(ErrorCode.AUTH_REFRESH_TOKEN_INVALID);
         }
     }
 
-    /** 리프레시 토큰 폐기. 키가 없어도 목표 상태가 달성된 것으로 처리. */
+    /** 이미 폐기된 토큰도 성공으로 취급해 로그아웃 멱등성 보장. */
     public void revoke(RefreshTokenClaims claims) {
         try {
             redisTemplate.delete(key(claims.memberId(), claims.tokenId()));
@@ -101,7 +101,7 @@ public class RefreshTokenStore {
         return KEY_PREFIX + memberId + ":" + tokenId;
     }
 
-    /** 서명된 고엔트로피 토큰을 저장하기 위한 단방향 변환. */
+    /** 평문 리프레시 토큰을 Redis에 남기지 않기 위한 SHA-256 단방향 변환. */
     static String hash(String refreshToken) {
         return Sha256.hex(refreshToken);
     }

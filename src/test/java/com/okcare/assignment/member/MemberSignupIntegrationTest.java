@@ -136,7 +136,6 @@ class MemberSignupIntegrationTest {
         }
     }
 
-    /** 성공하면 null, 실패하면 발생한 예외를 돌려준다. */
     private Callable<Throwable> signupTask(CountDownLatch start, String email) {
         return () -> {
             start.await();
