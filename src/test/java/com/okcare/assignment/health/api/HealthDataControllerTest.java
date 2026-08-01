@@ -184,6 +184,20 @@ class HealthDataControllerTest {
                 .andExpect(jsonPath("$.code").value(ErrorCode.INVALID_REQUEST.name()));
     }
 
+    @Test
+    @DisplayName("entries에 null 항목이 있으면 400을 반환한다")
+    void rejectsNullEntry() throws Exception {
+        givenAuthenticated();
+
+        mockMvc.perform(
+                        withToken(
+                                post("/api/v1/health-data")
+                                        .contentType(MediaType.APPLICATION_JSON)
+                                        .content(saveBodyWithNullEntry())))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.fieldErrors[0].field").value("data.entries[0]"));
+    }
+
     @ParameterizedTest
     @ValueSource(strings = {"2024-13-01", "2024-02-30", "2024/11/01", "20241101", "어제"})
     @DisplayName("날짜 형식이 어긋나면 400과 공통 오류 형식을 반환한다")
@@ -340,6 +354,28 @@ class HealthDataControllerTest {
                 }
                 """
                 .formatted(recordkey);
+    }
+
+    private static String saveBodyWithNullEntry() {
+        return """
+                {
+                  "recordkey": "%s",
+                  "type": "steps",
+                  "lastUpdate": "2024-11-15 10:00:00 +0900",
+                  "data": {
+                    "source": {
+                      "name": "SamsungHealth",
+                      "mode": 9,
+                      "product": {
+                        "name": "Android",
+                        "vender": "Samsung"
+                      }
+                    },
+                    "entries": [null]
+                  }
+                }
+                """
+                .formatted(RECORD_KEY);
     }
 
     private static MockHttpServletRequestBuilder withToken(MockHttpServletRequestBuilder request) {

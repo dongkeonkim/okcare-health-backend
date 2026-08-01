@@ -51,6 +51,11 @@ management:
     ssl:
       enabled: false
 
+logging:
+  level:
+    # DB 오류문에 포함될 수 있는 이메일과 recordkey 노출 방지.
+    org.hibernate.engine.jdbc.spi.SqlExceptionHelper: OFF
+
 app:
   # Daily/Monthly 집계 기준 타임존.
   business-zone: Asia/Seoul

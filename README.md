@@ -275,10 +275,10 @@ docker pull --platform linux/arm64 eclipse-temurin:17-jre
 |---|---:|---|
 | Unit | 94 | 정규화, 반올림, 범위 검증, 예외 격리, JWT |
 | JSON Slice | 24 | 응답 직렬화 형식, fixture 정규화 회귀 |
-| MVC Slice | 61 | HTTP 계약, 공개·보호 경로, 오류 응답 형식 |
-| Integration | 65 | 실제 MySQL과 리프레시 토큰용 Redis에서 저장·조회·인증·E2E 여정 |
+| MVC Slice | 62 | HTTP 계약, 공개·보호 경로, 오류 응답 형식 |
+| Integration | 67 | 실제 MySQL과 리프레시 토큰용 Redis에서 저장·조회·인증·E2E 여정 |
 
-**전체 244건.** Docker 실기동에서 이미지 빌드부터 로그아웃까지 9단계를 확인했습니다.
+**전체 247건.** Docker 실기동에서 이미지 빌드부터 로그아웃까지 9단계를 확인했습니다.
 로그에 평문 비밀번호, 토큰, `recordkey`와 측정값이 남지 않는 것도 확인했습니다.
 
 자세한 명령과 관찰값은 [검증 결과](./docs/검증/검증_결과.md)에 있습니다.

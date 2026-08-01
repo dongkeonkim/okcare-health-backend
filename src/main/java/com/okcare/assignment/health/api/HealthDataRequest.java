@@ -54,7 +54,7 @@ public record HealthDataRequest(
 
             @NotEmpty(message = "entries는 비어 있을 수 없습니다.")
             @Valid
-            List<Entry> entries
+            List<@NotNull(message = "entries 항목은 필수입니다.") Entry> entries
     ) {}
 
     public record Source(
