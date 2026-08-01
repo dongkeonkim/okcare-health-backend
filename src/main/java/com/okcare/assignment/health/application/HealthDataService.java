@@ -4,7 +4,6 @@ import com.okcare.assignment.common.error.BusinessException;
 import com.okcare.assignment.health.api.HealthDataRequest;
 import com.okcare.assignment.health.domain.NormalizedPayload;
 import com.okcare.assignment.health.domain.SaveResult;
-import com.okcare.assignment.health.infrastructure.HealthAggregationCache;
 import org.springframework.stereotype.Service;
 
 /**
@@ -18,17 +17,14 @@ public class HealthDataService {
     private final HealthDataNormalizer normalizer;
     private final HealthConnectionResolver connectionResolver;
     private final HealthActivityRecordWriter recordWriter;
-    private final HealthAggregationCache cache;
 
     public HealthDataService(
             HealthDataNormalizer normalizer,
             HealthConnectionResolver connectionResolver,
-            HealthActivityRecordWriter recordWriter,
-            HealthAggregationCache cache) {
+            HealthActivityRecordWriter recordWriter) {
         this.normalizer = normalizer;
         this.connectionResolver = connectionResolver;
         this.recordWriter = recordWriter;
-        this.cache = cache;
     }
 
     /**
@@ -38,9 +34,6 @@ public class HealthDataService {
         NormalizedPayload payload = normalizer.normalize(request);
         long connectionId = resolveConnection(memberId, payload);
         HealthActivityRecordWriter.Counts counts = recordWriter.write(connectionId, payload);
-
-        // write 커밋 뒤 version 증가. 이전 값을 새 version에 캐시하는 경로 차단.
-        cache.invalidate(payload.recordKey());
 
         return new SaveResult(
                 payload.received(), counts.inserted(), counts.updated(), counts.duplicated());

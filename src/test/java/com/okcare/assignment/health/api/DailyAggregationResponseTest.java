@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.okcare.assignment.health.domain.DailyTotal;
 import com.okcare.assignment.health.domain.MonthlyTotal;
+import com.okcare.assignment.health.domain.SaveResult;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.YearMonth;
@@ -34,12 +35,24 @@ class DailyAggregationResponseTest {
     @Autowired private ObjectMapper objectMapper;
 
     @Test
+    @DisplayName("응답 record는 recordKey 접근자를 유지한다")
+    void keepsCamelCaseRecordKeyAccessor() {
+        assertThat(HealthDataSaveResponse.from(RECORD_KEY, new SaveResult(1, 1, 0, 0)).recordKey())
+                .isEqualTo(RECORD_KEY);
+        assertThat(DailyAggregationResponse.of(RECORD_KEY, SEOUL, List.of()).recordKey())
+                .isEqualTo(RECORD_KEY);
+        assertThat(MonthlyAggregationResponse.of(RECORD_KEY, SEOUL, List.of()).recordKey())
+                .isEqualTo(RECORD_KEY);
+    }
+
+    @Test
     @DisplayName("걸음수는 정수로, 칼로리와 거리는 소수점 여섯 자리로 직렬화한다")
     void serializesRoundedValues() throws Exception {
         String json = write(total("7243.4999", "289.2099515", "5.4194904"));
 
         assertThat(json)
-                .contains("\"recordKey\":\"" + RECORD_KEY + "\"")
+                .contains("\"recordkey\":\"" + RECORD_KEY + "\"")
+                .doesNotContain("\"recordKey\"")
                 .contains("\"zoneId\":\"Asia/Seoul\"")
                 .contains("\"date\":\"2024-11-15\"")
                 .contains("\"steps\":7243")

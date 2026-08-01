@@ -6,6 +6,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.willThrow;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -22,6 +23,7 @@ import com.okcare.assignment.health.application.HealthAggregationService;
 import com.okcare.assignment.health.application.HealthDataService;
 import com.okcare.assignment.health.domain.DailyTotal;
 import com.okcare.assignment.health.domain.MonthlyTotal;
+import com.okcare.assignment.health.domain.SaveResult;
 import java.time.LocalDate;
 import java.time.YearMonth;
 import java.time.ZoneId;
@@ -29,6 +31,7 @@ import java.util.List;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.actuate.autoconfigure.endpoint.web.WebEndpointProperties;
@@ -37,6 +40,7 @@ import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
@@ -106,10 +110,78 @@ class HealthDataControllerTest {
 
         daily("2024-11-01", "2024-11-30")
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.recordKey").value(RECORD_KEY))
+                .andExpect(jsonPath("$.recordkey").value(RECORD_KEY))
+                .andExpect(jsonPath("$.recordKey").doesNotExist())
                 .andExpect(jsonPath("$.zoneId").value("Asia/Seoul"))
                 .andExpect(jsonPath("$.items[0].date").value("2024-11-01"))
                 .andExpect(jsonPath("$.items[0].steps").value(0));
+    }
+
+    @Test
+    @DisplayName("가변 길이 recordkey를 저장하고 같은 필드명으로 응답한다")
+    void acceptsVariableLengthRecordkey() throws Exception {
+        givenAuthenticated();
+        given(healthDataService.save(anyLong(), any())).willReturn(new SaveResult(1, 1, 0, 0));
+        String recordkey = "supplier-user-key";
+
+        mockMvc.perform(
+                        withToken(
+                                post("/api/v1/health-data")
+                                        .contentType(MediaType.APPLICATION_JSON)
+                                        .content(saveBody(recordkey))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.recordkey").value(recordkey))
+                .andExpect(jsonPath("$.recordKey").doesNotExist());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"", "   "})
+    @DisplayName("비어 있는 recordkey는 400을 반환한다")
+    void rejectsBlankRecordkey(String recordkey) throws Exception {
+        givenAuthenticated();
+
+        mockMvc.perform(
+                        withToken(
+                                post("/api/v1/health-data")
+                                        .contentType(MediaType.APPLICATION_JSON)
+                                        .content(saveBody(recordkey))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.fieldErrors[0].field").value("recordkey"));
+    }
+
+    @Test
+    @DisplayName("255자를 넘는 recordkey는 400을 반환한다")
+    void rejectsRecordkeyOverColumnLimit() throws Exception {
+        givenAuthenticated();
+
+        mockMvc.perform(
+                        withToken(
+                                post("/api/v1/health-data")
+                                        .contentType(MediaType.APPLICATION_JSON)
+                                        .content(saveBody("r".repeat(256)))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.fieldErrors[0].field").value("recordkey"));
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+        "/api/v1/health-data/daily, 2024-11-01, 2024-11-30",
+        "/api/v1/health-data/monthly, 2024-11, 2024-12"
+    })
+    @DisplayName("조회 recordkey가 255자를 넘으면 400을 반환한다")
+    void rejectsRecordkeyOverColumnLimitOnQueries(String path, String from, String to)
+            throws Exception {
+
+        givenAuthenticated();
+
+        mockMvc.perform(
+                        withToken(
+                                get(path)
+                                        .param("recordkey", "r".repeat(256))
+                                        .param("from", from)
+                                        .param("to", to)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(ErrorCode.INVALID_REQUEST.name()));
     }
 
     @ParameterizedTest
@@ -127,7 +199,7 @@ class HealthDataControllerTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"recordKey", "from", "to"})
+    @ValueSource(strings = {"recordkey", "from", "to"})
     @DisplayName("필수 파라미터가 빠지면 400과 공통 오류 형식을 반환한다")
     void rejectsMissingParameter(String omitted) throws Exception {
         givenAuthenticated();
@@ -159,7 +231,8 @@ class HealthDataControllerTest {
 
         monthly("2024-11", "2024-12")
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.recordKey").value(RECORD_KEY))
+                .andExpect(jsonPath("$.recordkey").value(RECORD_KEY))
+                .andExpect(jsonPath("$.recordKey").doesNotExist())
                 .andExpect(jsonPath("$.zoneId").value("Asia/Seoul"))
                 .andExpect(jsonPath("$.items[0].month").value("2024-11"))
                 .andExpect(jsonPath("$.items[0].steps").value(0));
@@ -190,7 +263,7 @@ class HealthDataControllerTest {
         return mockMvc.perform(
                 withToken(
                         get("/api/v1/health-data/monthly")
-                                .param("recordKey", RECORD_KEY)
+                                .param("recordkey", RECORD_KEY)
                                 .param("from", from)
                                 .param("to", to)));
     }
@@ -203,7 +276,7 @@ class HealthDataControllerTest {
         return mockMvc.perform(
                 withToken(
                         dailyRequest()
-                                .param("recordKey", RECORD_KEY)
+                                .param("recordkey", RECORD_KEY)
                                 .param("from", from)
                                 .param("to", to)));
     }
@@ -218,8 +291,8 @@ class HealthDataControllerTest {
 
     private static MockHttpServletRequestBuilder dailyRequestWithout(String omitted) {
         MockHttpServletRequestBuilder request = dailyRequest();
-        if (!"recordKey".equals(omitted)) {
-            request = request.param("recordKey", RECORD_KEY);
+        if (!"recordkey".equals(omitted)) {
+            request = request.param("recordkey", RECORD_KEY);
         }
         if (!"from".equals(omitted)) {
             request = request.param("from", "2024-11-01");
@@ -229,6 +302,44 @@ class HealthDataControllerTest {
         }
 
         return request;
+    }
+
+    private static String saveBody(String recordkey) {
+        return """
+                {
+                  "recordkey": "%s",
+                  "type": "steps",
+                  "lastUpdate": "2024-11-15 10:00:00 +0900",
+                  "data": {
+                    "source": {
+                      "name": "SamsungHealth",
+                      "mode": 9,
+                      "product": {
+                        "name": "Android",
+                        "vender": "Samsung"
+                      }
+                    },
+                    "entries": [
+                      {
+                        "period": {
+                          "from": "2024-11-15 09:00:00",
+                          "to": "2024-11-15 09:10:00"
+                        },
+                        "steps": 10,
+                        "calories": {
+                          "value": 1,
+                          "unit": "kcal"
+                        },
+                        "distance": {
+                          "value": 0.01,
+                          "unit": "km"
+                        }
+                      }
+                    ]
+                  }
+                }
+                """
+                .formatted(recordkey);
     }
 
     private static MockHttpServletRequestBuilder withToken(MockHttpServletRequestBuilder request) {

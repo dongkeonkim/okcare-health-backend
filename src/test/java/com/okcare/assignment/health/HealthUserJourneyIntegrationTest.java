@@ -47,7 +47,7 @@ class HealthUserJourneyIntegrationTest extends HealthIntegrationSupport {
         String monthlyAfterSave =
                 bodyOf(monthly(accessToken, recordKey).andExpect(status().isOk()));
 
-        // 단일 recordkey 재전송으로 상태 유지와 캐시 무효화 순서 확인.
+        // 단일 recordkey 재전송으로 멱등 저장 후 상태 유지 확인.
         saveFixture(accessToken, fixtureFiles().get(0)).andExpect(status().isOk());
         assertThat(recordRepository.count()).as("5단계 재전송 후 행 수").isEqualTo(storedRecords);
         assertThat(bodyOf(daily(accessToken, recordKey).andExpect(status().isOk())))
@@ -78,7 +78,7 @@ class HealthUserJourneyIntegrationTest extends HealthIntegrationSupport {
         return mockMvc.perform(
                         get("/api/v1/health-data/daily")
                                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken)
-                                .param("recordKey", recordKey)
+                                .param("recordkey", recordKey)
                                 .param("from", RANGE_FROM.toString())
                                 .param("to", RANGE_TO.toString()));
     }
@@ -87,7 +87,7 @@ class HealthUserJourneyIntegrationTest extends HealthIntegrationSupport {
         return mockMvc.perform(
                         get("/api/v1/health-data/monthly")
                                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken)
-                                .param("recordKey", recordKey)
+                                .param("recordkey", recordKey)
                                 .param("from", MONTH_FROM.toString())
                                 .param("to", MONTH_TO.toString()));
     }

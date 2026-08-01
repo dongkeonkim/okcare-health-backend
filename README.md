@@ -23,8 +23,7 @@
 - 이메일과 비밀번호를 사용한 로그인, 액세스 토큰 재발급과 로그아웃
 - 삼성헬스·Apple Health 건강활동 데이터 저장과 재전송 멱등 처리
 - 회원과 `recordkey` 간 소유권 분리
-- `recordkey`별 Daily·Monthly 집계 조회
-- Redis 조회 캐시와 Redis 장애 시 MySQL 조회 대체
+- MySQL 원본을 직접 집계하는 `recordkey`별 Daily·Monthly 조회
 - 일관된 입력 검증과 오류 응답
 
 입력·출력과 예외 정책은 [기능 명세](./docs/명세/기능_명세.md)가 단일 기준입니다.
@@ -32,7 +31,9 @@
 ## API
 
 업무 API의 기본 경로는 `/api/v1`이고 건강활동 API는 `Authorization: Bearer {accessToken}`이
-필요합니다. `/actuator/health`는 기본 경로 밖에 있으며 인증 없이 호출합니다.
+필요합니다. `/actuator/health`는 기본 경로 밖에 있으며 인증 없이 호출합니다. Docker Compose는
+`app`, `mysql`, `redis`의 healthcheck가 모두 `healthy`인지 확인하고, 정상 상태에서 엔드포인트는
+종합 결과 `{"status":"UP"}`만 반환합니다.
 
 | 메서드 | 경로 | 설명 |
 |---|---|---|
@@ -43,7 +44,7 @@
 | `POST` | `/health-data` | 건강활동 데이터 저장 |
 | `GET` | `/health-data/daily` | 일간 집계 조회 |
 | `GET` | `/health-data/monthly` | 월간 집계 조회 |
-| `GET` | `/actuator/health` | 기동 확인. 인증 없이 호출 |
+| `GET` | `/actuator/health` | Compose 종합 상태. 인증 없이 호출 |
 
 오류 응답은 `code`, `message`, `fieldErrors`, `traceId`, `timestamp`를 갖는 한 가지 형식입니다.
 
@@ -63,25 +64,25 @@ TOKEN=$(curl -s -X POST $BASE/api/v1/auth/login -H 'Content-Type: application/js
 # 저장
 curl -s -X POST $BASE/api/v1/health-data -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' --data-binary @fixtures/health/INPUT_DATA1.json
-# {"recordKey":"7836887b-...","received":1066,"inserted":1066,"updated":0,"duplicated":0}
+# {"recordkey":"7836887b-...","received":1066,"inserted":1066,"updated":0,"duplicated":0}
 
 # 같은 파일 재전송 — 행이 늘지 않고 duplicated로 계산
 curl -s -X POST $BASE/api/v1/health-data -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' --data-binary @fixtures/health/INPUT_DATA1.json
-# {"recordKey":"7836887b-...","received":1066,"inserted":0,"updated":0,"duplicated":1066}
+# {"recordkey":"7836887b-...","received":1066,"inserted":0,"updated":0,"duplicated":1066}
 
 # 일간 조회
 curl -s -G $BASE/api/v1/health-data/daily -H "Authorization: Bearer $TOKEN" \
-  --data-urlencode 'recordKey=7836887b-b12a-440f-af0f-851546504b13' \
+  --data-urlencode 'recordkey=7836887b-b12a-440f-af0f-851546504b13' \
   --data-urlencode 'from=2024-11-15' --data-urlencode 'to=2024-11-17'
-# {"recordKey":"7836887b-...","zoneId":"Asia/Seoul","items":[
+# {"recordkey":"7836887b-...","zoneId":"Asia/Seoul","items":[
 #   {"date":"2024-11-15","steps":7243,"calories":289.209952,"distance":5.419490}, ...]}
 
 # 월간 조회
 curl -s -G $BASE/api/v1/health-data/monthly -H "Authorization: Bearer $TOKEN" \
-  --data-urlencode 'recordKey=7836887b-b12a-440f-af0f-851546504b13' \
+  --data-urlencode 'recordkey=7836887b-b12a-440f-af0f-851546504b13' \
   --data-urlencode 'from=2024-11' --data-urlencode 'to=2024-12'
-# {"recordKey":"7836887b-...","zoneId":"Asia/Seoul","items":[
+# {"recordkey":"7836887b-...","zoneId":"Asia/Seoul","items":[
 #   {"month":"2024-11","steps":124783,"calories":5002.499439,"distance":94.342095}, ...]}
 ```
 
@@ -90,22 +91,25 @@ curl -s -G $BASE/api/v1/health-data/monthly -H "Authorization: Bearer $TOKEN" \
 
 ## 조회 결과
 
-실기동 컨테이너에서 확인한 Monthly 전체 결과와 `recordkey`별 Daily 대표 결과는 별도 제출물인
+실기동 컨테이너에서 확인한 `recordkey`별 Daily·Monthly 전체 결과는 별도 제출물인
 [건강활동 데이터 조회 결과](./docs/검증/조회_결과.md)에 있습니다.
 
 ## 필드 설명
 
-과제 원문이 지정한 네 필드입니다. 저장 타입이 과제 표기와 다른 이유를 함께 적었습니다.
+건강활동 필드의 의미와 처리 방식입니다. 제공된 입력값의 정밀도를 보존해 저장하고 API 응답에서 요구
+형식으로 제공합니다.
 
-| 필드 | 과제 표기 | 저장 타입 | 이유 |
-|---|---|---|---|
-| `steps` | 걸음수(int) | `DECIMAL(24,12)` | **입력에 소수 걸음수가 1,498건 있습니다.** `int`로 받으면 잘립니다. 집계를 마친 뒤 정수로 반올림해 응답합니다 |
-| `calories` | 소모 칼로리(float) | `DECIMAL(24,12)` | `float`은 합산에서 오차가 누적됩니다. 응답은 소수점 여섯 자리 |
-| `distance` | 이동거리(float) | `DECIMAL(24,12)` | 입력에 소수점 20자리 값이 있습니다. 응답은 소수점 여섯 자리 |
-| `recordkey` | 사용자 구분 키(varchar) | `CHAR(36)` | 입력이 항상 UUID 36자입니다. 고정 길이라 `CHAR`가 맞습니다 |
+| 필드 | 의미 | API 응답 | DB 저장 | 처리 |
+|---|---|---|---|---|
+| `steps` | 걸음수(int) | JSON 정수 | `DECIMAL(24,12)` | 입력의 소수 걸음수를 보존해 합산한 뒤 정수로 반올림 |
+| `calories` | 소모 칼로리(float) | JSON 소수 | `DECIMAL(24,12)` | 이진 부동소수점의 누적 오차 없이 합산 |
+| `distance` | 이동거리(float) | JSON 소수 | `DECIMAL(24,12)` | 입력의 긴 소수 값을 보존한 뒤 응답 정밀도로 반올림 |
+| `recordkey` | 사용자 구분 키(varchar) | JSON 문자열 | `VARCHAR(255)` | 최대 255자 가변 길이 문자열 |
 
 응답 단계에서 걸음수는 정수, 칼로리와 거리는 소수점 여섯 자리로 `HALF_UP` 반올림합니다. **반올림은
 집계를 모두 마친 뒤 한 번만 합니다.**
+
+`recordkey`는 `VARCHAR(255)`으로 저장하고 대소문자와 악센트를 구분해 비교합니다.
 
 ## 프로젝트 구조
 
@@ -113,7 +117,7 @@ curl -s -G $BASE/api/v1/health-data/monthly -H "Authorization: Bearer $TOKEN" \
 src/main/java/com/okcare/assignment/
 ├── auth/            인증 — 로그인, 재발급, 로그아웃, JWT, 리프레시 토큰 저장소
 ├── member/          회원가입
-├── health/          건강활동 — 정규화, 멱등 저장, 집계 조회, 캐시
+├── health/          건강활동 — 정규화, 멱등 저장, 집계 조회
 ├── common/          오류 응답 형식, 인증 필터, 해시
 └── config/          설정 속성, 보안 설정, 기동 검증
 ```
@@ -124,9 +128,9 @@ src/main/java/com/okcare/assignment/
 | 계층 | 책임 |
 |---|---|
 | `api` | HTTP 계약, 요청 검증, 응답 변환. **반올림이 여기서만 일어납니다** |
-| `application` | 정규화, 소유권, 멱등 저장, 캐시 무효화 |
+| `application` | 정규화, 소유권, 멱등 저장 |
 | `domain` | 엔티티와 값 객체. 상태 변경은 도메인 메서드로 |
-| `infrastructure` | 리포지토리, Redis 접근 |
+| `infrastructure` | 리포지토리, 리프레시 토큰 저장소 접근 |
 
 ```
 docs/
@@ -146,11 +150,10 @@ flowchart LR
     Client[클라이언트] --> Filter[JwtAuthenticationFilter]
     Filter --> Controller[HealthDataController]
     Controller --> Service[HealthDataService / HealthAggregationService]
-    Service --> Cache[HealthAggregationCache]
-    Cache -.->|적중| Service
-    Cache -->|비적중·장애| Repo[Repository]
+    Service --> Repo[Health Repository]
     Repo --> MySQL[(MySQL 8.4)]
-    Cache --> Redis[(Redis 7.4)]
+    Auth[Auth Service] --> RefreshToken[Refresh Token Store]
+    RefreshToken --> Redis[(Redis 7.4)]
     Filter -.->|401| EntryPoint[TokenAuthenticationEntryPoint]
 ```
 
@@ -162,7 +165,7 @@ flowchart LR
 | Framework | Spring Boot 3.5 |
 | Persistence | Spring Data JPA |
 | Database | MySQL 8.4 |
-| Cache / Token Store | Redis 7.4 |
+| Token Store | Redis 7.4 — 리프레시 토큰 저장·회전 |
 | Migration | Flyway |
 | Security | Spring Security, JWT(jjwt), BCrypt |
 | Test | JUnit 5, AssertJ, Mockito, Testcontainers |
@@ -173,10 +176,9 @@ flowchart LR
 구현 중 실제로 겪은 것만 적었습니다. 각 항목은 재현 방법과 함께
 [검증 결과](./docs/검증/검증_결과.md)에 남겼습니다.
 
-### 1. 과제 표기와 실제 입력 데이터가 달랐습니다
+### 1. 소수 걸음수의 정밀도를 보존했습니다
 
-과제 원문은 `steps`를 `int`로 적었지만 **Apple Health 입력에 소수 걸음수가 1,498건** 있었습니다.
-`int`로 받으면 조용히 잘립니다.
+Apple Health 입력에는 **소수 걸음수가 1,498건** 있습니다. 저장 전에 정수로 바꾸면 값이 잘립니다.
 
 측정값 전부를 `DECIMAL(24,12)`로 저장하고 **집계를 마친 뒤 걸음수만 정수로 반올림**했습니다.
 저장 정밀도로 인한 오차가 최종 응답에 영향을 주지 않음을 확인했으며, 수치 근거는
@@ -206,16 +208,7 @@ flowchart LR
 월간을 원본 행에서 직접 집계하고, 반올림은 응답 객체 한 곳에서만 하도록 했습니다. 굴려 올리면 안
 된다는 것을 테스트로 고정했습니다.
 
-### 5. 캐시가 저장 전 값을 새 세대 키에 실을 수 있었습니다
-
-집계 서비스에 `@Transactional(readOnly = true)`가 붙어 있어 소유권 조회가 첫 DB 읽기가 되고 스냅샷이
-그 시점에 고정됐습니다. 그 뒤 읽는 Redis 세대 번호는 더 새로울 수 있어, **저장 전 값이 새 세대 키에
-실려 TTL 동안 후속 조회에도 나갔습니다.**
-
-트랜잭션 경계를 없애 집계 쿼리가 세대 번호를 읽은 뒤 자기 스냅샷을 만들게 했습니다. 요청 안의 두
-시점을 `latch`로 붙잡는 경쟁 테스트를 만들어 고정했습니다.
-
-### 6. 테스트가 통과하는데 검증하지 못하는 자리들이 있었습니다
+### 5. 테스트가 통과하는데 검증하지 못하는 자리들이 있었습니다
 
 - **응답 소수 자리**: JSON 트리로 읽으면 Jackson이 `0.000000`을 `0.0`으로, `BigDecimal`로 바꿔도
   node factory가 trailing zero를 떼어 `0`으로 만듭니다. 계약이 전송되는 문자열이므로 **응답
@@ -228,7 +221,7 @@ flowchart LR
 
 각 수정이 실제로 회귀를 잡는지 **구현을 의도적으로 망가뜨려 확인**했습니다.
 
-### 7. 프레임워크 기본값이 명세에 없는 동작을 노출했습니다
+### 6. 프레임워크 기본값이 명세에 없는 동작을 노출했습니다
 
 Spring Security의 기본 `LogoutFilter`가 명세에 없는 `/logout`을 302로 열어 두고, 기본 사용자
 자동 구성이 **생성 비밀번호를 시작 로그에 남겼습니다.**
@@ -254,14 +247,15 @@ curl --fail http://localhost:8080/actuator/health
 `.env`의 `JWT_SECRET`에 위 명령의 출력을 넣으세요. MySQL과 Redis 포트는 `127.0.0.1`에만 바인딩되므로
 호스트 외부에서 접근할 수 없습니다.
 
-세 서비스가 healthy가 되면 `/actuator/health`가 MySQL과 Redis 연결 상태를 함께 반환합니다. 이어서 위
-[API](#api)의 `curl` 명령을 순서대로 실행하면 저장과 조회를 확인할 수 있습니다.
+`app`, `mysql`, `redis`가 모두 healthy가 되면 `/actuator/health`는 `{"status":"UP"}`이라는
+종합 상태만 반환합니다. 이어서 위 [API](#api)의 `curl` 명령을 순서대로 실행하면 저장과 조회를
+확인할 수 있습니다.
 
 데이터를 보존한 채 종료하려면 `docker compose down`을, 볼륨까지 제거하려면
 `docker compose down --volumes`를 사용합니다.
 
-빌드와 테스트는 다음 명령으로 실행합니다. 통합 테스트가 Testcontainers로 MySQL과 Redis를 띄우므로
-Docker가 실행 중이어야 합니다.
+빌드와 테스트는 다음 명령으로 실행합니다. 통합 테스트가 Testcontainers로 MySQL과 리프레시 토큰용
+Redis를 띄우므로 Docker가 실행 중이어야 합니다.
 
 ```bash
 ./gradlew clean build
@@ -279,14 +273,13 @@ docker pull --platform linux/arm64 eclipse-temurin:17-jre
 
 | 수준 | 건수 | 대상 |
 |---|---:|---|
-| Unit | 105 | 정규화, 반올림, 범위 검증, 캐시 키와 예외 격리, JWT |
-| JSON Slice | 23 | 응답 직렬화 형식, fixture 정규화 회귀 |
-| MVC Slice | 55 | HTTP 계약, 공개·보호 경로, 오류 응답 형식 |
-| Integration | 69 | 실제 MySQL·Redis에서 저장·조회·캐시·장애 대체·E2E 여정 |
+| Unit | 94 | 정규화, 반올림, 범위 검증, 예외 격리, JWT |
+| JSON Slice | 24 | 응답 직렬화 형식, fixture 정규화 회귀 |
+| MVC Slice | 61 | HTTP 계약, 공개·보호 경로, 오류 응답 형식 |
+| Integration | 65 | 실제 MySQL과 리프레시 토큰용 Redis에서 저장·조회·인증·E2E 여정 |
 
-**전체 252건.** Docker 실기동에서 이미지 빌드부터 로그아웃까지 9단계를 확인했습니다. Redis
-컨테이너를 정지시킨 채로도 일간·월간 조회가 약 2.02초에 `200`이며 응답 원문이 정지 전과
-동일했습니다. 로그에 평문 비밀번호, 토큰, `recordkey`와 측정값이 남지 않는 것도 확인했습니다.
+**전체 244건.** Docker 실기동에서 이미지 빌드부터 로그아웃까지 9단계를 확인했습니다.
+로그에 평문 비밀번호, 토큰, `recordkey`와 측정값이 남지 않는 것도 확인했습니다.
 
 자세한 명령과 관찰값은 [검증 결과](./docs/검증/검증_결과.md)에 있습니다.
 
@@ -309,6 +302,7 @@ docker pull --platform linux/arm64 eclipse-temurin:17-jre
 ## 문서
 
 - [과제 원문](./docs/요구사항/과제_원문.md)
+- [요구사항 추적표](./docs/요구사항/요구사항_추적표.md)
 - [비즈니스 기획](./docs/요구사항/비즈니스_기획.md)
 - [기능 명세](./docs/명세/기능_명세.md)
 - [개발 계획](./docs/설계/개발_계획.md)
@@ -324,6 +318,6 @@ docker pull --platform linux/arm64 eclipse-temurin:17-jre
 - [x] Spring Boot·MySQL·Redis·Docker 기반 구축
 - [x] 회원가입과 인증 구현
 - [x] 건강활동 데이터 정규화와 멱등 저장
-- [x] Daily·Monthly 집계와 Redis 조회 캐시
+- [x] MySQL 원본을 직접 집계하는 Daily·Monthly 조회
 - [x] 통합·회귀·E2E·Docker 스모크 검증
 - [x] ERD와 실제 검증 결과 작성

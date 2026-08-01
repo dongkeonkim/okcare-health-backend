@@ -6,6 +6,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.okcare.assignment.RegressionBaseline;
 import com.okcare.assignment.health.domain.HealthActivityRecord;
@@ -141,6 +142,52 @@ class HealthDataSaveIntegrationTest extends HealthIntegrationSupport {
 
         String recordKey = readTree(Files.readString(file)).get("recordkey").asText();
         assertThat(connectionRepository.findByRecordKey(recordKey)).isPresent();
+    }
+
+    @Test
+    @DisplayName("255자 recordkey를 저장하고 같은 이름의 응답 필드로 반환한다")
+    void acceptsRecordkeyAtColumnLimit() throws Exception {
+        String accessToken = accessTokenOf("health-recordkey-limit@example.com");
+        ObjectNode payload = (ObjectNode) readTree(Files.readString(fixtureFiles().get(0)));
+        String recordkey = "r".repeat(255);
+        payload.put("recordkey", recordkey);
+
+        ArrayNode entries = (ArrayNode) payload.at("/data/entries");
+        JsonNode firstEntry = entries.get(0).deepCopy();
+        entries.removeAll();
+        entries.add(firstEntry);
+
+        save(accessToken, payload.toString())
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.recordkey").value(recordkey))
+                .andExpect(jsonPath("$.recordKey").doesNotExist());
+
+        assertThat(connectionRepository.findByRecordKey(recordkey)).isPresent();
+    }
+
+    @Test
+    @DisplayName("대소문자만 다른 recordkey는 서로 다른 연결로 저장된다")
+    void treatsCaseDifferentRecordKeysAsDistinct() throws Exception {
+        String firstToken = accessTokenOf("health-recordkey-case-first@example.com");
+        String secondToken = accessTokenOf("health-recordkey-case-second@example.com");
+        ObjectNode payload = (ObjectNode) readTree(Files.readString(fixtureFiles().get(0)));
+        String lowerCaseRecordkey = "recordkey-case";
+        String upperCaseRecordkey = "RECORDKEY-CASE";
+        payload.put("recordkey", lowerCaseRecordkey);
+
+        ArrayNode entries = (ArrayNode) payload.at("/data/entries");
+        JsonNode firstEntry = entries.get(0).deepCopy();
+        entries.removeAll();
+        entries.add(firstEntry);
+
+        save(firstToken, payload.toString()).andExpect(status().isOk());
+
+        payload.put("recordkey", upperCaseRecordkey);
+        save(secondToken, payload.toString()).andExpect(status().isOk());
+
+        assertThat(connectionRepository.findByRecordKey(lowerCaseRecordkey)).isPresent();
+        assertThat(connectionRepository.findByRecordKey(upperCaseRecordkey)).isPresent();
+        assertThat(connectionRepository.count()).isEqualTo(2);
     }
 
     @Test

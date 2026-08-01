@@ -6,7 +6,6 @@ import com.okcare.assignment.health.domain.DailyTotal;
 import com.okcare.assignment.health.domain.HealthConnection;
 import com.okcare.assignment.health.domain.MonthlyTotal;
 import com.okcare.assignment.health.infrastructure.HealthActivityRecordRepository;
-import com.okcare.assignment.health.infrastructure.HealthAggregationCache;
 import com.okcare.assignment.health.infrastructure.HealthConnectionRepository;
 import java.time.LocalDate;
 import java.time.YearMonth;
@@ -15,16 +14,8 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.function.Supplier;
 import org.springframework.stereotype.Service;
 
-/**
- * 반올림 전 집계 조회.
- *
- * <p>집계 서비스에 트랜잭션을 열지 않아 Redis version 이후
- * 최신 DB 스냅샷 사용.
- * 저장 직후 조회에서 저장 전 값이 새 version 캐시에 들어가는 경로 차단.
- */
 @Service
 public class HealthAggregationService {
 
@@ -36,15 +27,12 @@ public class HealthAggregationService {
 
     private final HealthConnectionRepository connectionRepository;
     private final HealthActivityRecordRepository recordRepository;
-    private final HealthAggregationCache cache;
 
     public HealthAggregationService(
             HealthConnectionRepository connectionRepository,
-            HealthActivityRecordRepository recordRepository,
-            HealthAggregationCache cache) {
+            HealthActivityRecordRepository recordRepository) {
         this.connectionRepository = connectionRepository;
         this.recordRepository = recordRepository;
-        this.cache = cache;
     }
 
     /**
@@ -55,16 +43,8 @@ public class HealthAggregationService {
         int days = requireValidRange(from, to);
         long connectionId = requireOwnedConnection(memberId, recordKey);
 
-        Supplier<List<DailyTotal>> loader =
-                () -> {
-                    List<DailyTotal> found =
-                            recordRepository.sumDailyTotals(connectionId, from, to);
-
-                    return fillMissingDates(from, days, found);
-                };
-
-        // 캐시보다 먼저 소유권을 확인해 타인 recordkey 캐시 노출 방지.
-        return cache.daily(recordKey, from, to, loader);
+        List<DailyTotal> found = recordRepository.sumDailyTotals(connectionId, from, to);
+        return fillMissingDates(from, days, found);
     }
 
     /**
@@ -77,17 +57,10 @@ public class HealthAggregationService {
         int months = requireValidRange(from, to);
         long connectionId = requireOwnedConnection(memberId, recordKey);
 
-        Supplier<List<MonthlyTotal>> loader =
-                () -> {
-                    // YearMonth가 월 경계와 윤년을 계산.
-                    List<MonthlyTotal> found =
-                            recordRepository.sumMonthlyTotals(
-                                    connectionId, from.atDay(1), to.atEndOfMonth());
-
-                    return fillMissingMonths(from, months, found);
-                };
-
-        return cache.monthly(recordKey, from, to, loader);
+        List<MonthlyTotal> found =
+                recordRepository.sumMonthlyTotals(
+                        connectionId, from.atDay(1), to.atEndOfMonth());
+        return fillMissingMonths(from, months, found);
     }
 
     private static int requireValidRange(LocalDate from, LocalDate to) {

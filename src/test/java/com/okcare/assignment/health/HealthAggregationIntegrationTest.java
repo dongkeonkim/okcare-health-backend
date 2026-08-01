@@ -42,10 +42,15 @@ class HealthAggregationIntegrationTest extends HealthIntegrationSupport {
     @DisplayName("조회 범위의 모든 날짜를 오래된 날짜부터 반환한다")
     void returnsEveryDateInRange() throws Exception {
         String accessToken = storeAllFixtures("aggregate-range@example.com");
+        String recordkey = firstRecordKey();
 
-        JsonNode items = itemsOf(daily(accessToken, firstRecordKey(), RANGE_FROM, RANGE_TO));
+        JsonNode response =
+                readTree(bodyOf(daily(accessToken, recordkey, RANGE_FROM, RANGE_TO)));
+        JsonNode items = response.get("items");
 
         // 항목 수와 양 끝 날짜를 함께 단언. 채우기 누락과 off-by-one이 한 번에 걸림.
+        assertThat(response.get("recordkey").asText()).isEqualTo(recordkey);
+        assertThat(response.has("recordKey")).isFalse();
         assertThat(items).hasSize(61);
         assertThat(items.get(0).get("date").asText()).isEqualTo("2024-11-01");
         assertThat(items.get(60).get("date").asText()).isEqualTo("2024-12-31");
@@ -184,7 +189,7 @@ class HealthAggregationIntegrationTest extends HealthIntegrationSupport {
     void rejectsUnauthenticated() throws Exception {
         mockMvc.perform(
                         get("/api/v1/health-data/daily")
-                                .param("recordKey", "00000000-0000-0000-0000-000000000000")
+                                .param("recordkey", "00000000-0000-0000-0000-000000000000")
                                 .param("from", RANGE_FROM.toString())
                                 .param("to", RANGE_TO.toString()))
                 .andExpect(status().isUnauthorized());
@@ -378,95 +383,15 @@ class HealthAggregationIntegrationTest extends HealthIntegrationSupport {
     }
 
     @Test
-    @DisplayName("두 번째 조회는 캐시에서 나오고 응답 원문이 첫 조회와 같다")
-    void servesIdenticalBodyFromCache() throws Exception {
-        String accessToken = storeAllFixtures("cache-hit@example.com");
-        String recordKey = firstRecordKey();
-
-        String first = bodyOf(daily(accessToken, recordKey, RANGE_FROM, RANGE_TO)
-                .andExpect(status().isOk()));
-
-        // 저장된 행을 모두 지운 뒤에도 같은 값이 나오면 DB를 보지 않았다는 뜻. 리포지토리 호출
-        // 횟수를 세는 것보다 직접적.
-        recordRepository.deleteAllInBatch();
-
-        String second = bodyOf(daily(accessToken, recordKey, RANGE_FROM, RANGE_TO)
-                .andExpect(status().isOk()));
-
-        // 응답 원문으로 캐시 경로의 직렬화·소수 자리·정렬 일치 확인.
-        assertThat(second).isEqualTo(first);
-    }
-
-    @Test
-    @DisplayName("월간 조회도 캐시에서 같은 원문을 돌려준다")
-    void servesIdenticalMonthlyBodyFromCache() throws Exception {
-        String accessToken = storeAllFixtures("cache-hit-monthly@example.com");
-        String recordKey = firstRecordKey();
-
-        String first = bodyOf(monthly(accessToken, recordKey, MONTH_FROM, MONTH_TO)
-                .andExpect(status().isOk()));
-        recordRepository.deleteAllInBatch();
-        String second = bodyOf(monthly(accessToken, recordKey, MONTH_FROM, MONTH_TO)
-                .andExpect(status().isOk()));
-
-        assertThat(second).isEqualTo(first);
-    }
-
-    @Test
-    @DisplayName("조회가 캐시 키를 TTL과 함께 만들고 version 키는 만들지 않는다")
-    void writesCacheKeyWithTtl() throws Exception {
-        String accessToken = storeAllFixtures("cache-key@example.com");
-        String recordKey = firstRecordKey();
-        redisTemplate.delete(redisTemplate.keys("health:*"));
-
-        daily(accessToken, recordKey, RANGE_FROM, RANGE_TO).andExpect(status().isOk());
-        monthly(accessToken, recordKey, MONTH_FROM, MONTH_TO).andExpect(status().isOk());
-
-        String dailyKey = "health:daily:" + recordKey + ":0:" + RANGE_FROM + ":" + RANGE_TO;
-        String monthlyKey = "health:monthly:" + recordKey + ":0:" + MONTH_FROM + ":" + MONTH_TO;
-        assertThat(redisTemplate.hasKey(dailyKey)).isTrue();
-        assertThat(redisTemplate.hasKey(monthlyKey)).isTrue();
-        assertThat(redisTemplate.getExpire(dailyKey)).isBetween(1L, 300L);
-        assertThat(redisTemplate.getExpire(monthlyKey)).isBetween(1L, 600L);
-
-        // 조회가 version 키를 만들면 저장 없이도 세대가 올라 캐시가 매번 비적중이 됨.
-        assertThat(redisTemplate.hasKey("health:cache-version:" + recordKey)).isFalse();
-    }
-
-    @Test
-    @DisplayName("저장하면 version이 올라가고 이전 캐시 키를 다시 쓰지 않는다")
-    void invalidatesByVersionAfterSave() throws Exception {
-        String accessToken = storeAllFixtures("cache-invalidate@example.com");
-        String recordKey = firstRecordKey();
-        redisTemplate.delete(redisTemplate.keys("health:*"));
-
-        daily(accessToken, recordKey, RANGE_FROM, RANGE_TO).andExpect(status().isOk());
-        String beforeKey = "health:daily:" + recordKey + ":0:" + RANGE_FROM + ":" + RANGE_TO;
-        assertThat(redisTemplate.hasKey(beforeKey)).isTrue();
-
-        saveFixture(accessToken, fixtureFiles().get(0)).andExpect(status().isOk());
-        assertThat(redisTemplate.opsForValue().get("health:cache-version:" + recordKey))
-                .isEqualTo("1");
-
-        daily(accessToken, recordKey, RANGE_FROM, RANGE_TO).andExpect(status().isOk());
-        String afterKey = "health:daily:" + recordKey + ":1:" + RANGE_FROM + ":" + RANGE_TO;
-        assertThat(redisTemplate.hasKey(afterKey)).isTrue();
-
-        // 이전 세대 키는 지우지 않고 TTL로 만료시킨다. 패턴 삭제를 쓰지 않는 대가.
-        assertThat(redisTemplate.hasKey(beforeKey)).isTrue();
-    }
-
-    @Test
-    @DisplayName("무효화 뒤에는 저장한 값이 조회에 반영된다")
-    void reflectsSavedDataAfterInvalidation() throws Exception {
-        String owner = storeAllFixtures("cache-fresh@example.com");
+    @DisplayName("저장한 값이 다음 집계 조회에 반영된다")
+    void reflectsSavedDataAfterSave() throws Exception {
+        String owner = storeAllFixtures("aggregate-fresh@example.com");
         String recordKey = firstRecordKey();
 
         JsonNode before = itemsOf(daily(owner, recordKey, RANGE_FROM, RANGE_TO));
         long beforeSteps = before.get(14).get("steps").asLong();
 
-        // 같은 fixture의 한 엔트리 측정값만 바꿔 다시 저장. 캐시가 무효화되지 않으면 이전 값이
-        // 나옴.
+        // 같은 fixture의 한 엔트리 측정값만 바꿔 다시 저장.
         ObjectNode changed = (ObjectNode) readTree(java.nio.file.Files.readString(
                 fixtureFiles().get(0)));
         ObjectNode entry = (ObjectNode) changed.get("data").get("entries").get(0);
@@ -477,29 +402,13 @@ class HealthAggregationIntegrationTest extends HealthIntegrationSupport {
         assertThat(after.get(14).get("steps").asLong()).isNotEqualTo(beforeSteps);
     }
 
-    @Test
-    @DisplayName("version 키가 정수가 아니어도 조회가 200이고 값이 같다")
-    void survivesMalformedCacheVersion() throws Exception {
-        String accessToken = storeAllFixtures("cache-broken-version@example.com");
-        String recordKey = firstRecordKey();
-        String expected = bodyOf(daily(accessToken, recordKey, RANGE_FROM, RANGE_TO)
-                .andExpect(status().isOk()));
-
-        redisTemplate.opsForValue().set("health:cache-version:" + recordKey, "망가진값");
-
-        // 손상된 version도 캐시 문제로 조회를 깨뜨리지 않아야 함.
-        assertThat(bodyOf(daily(accessToken, recordKey, RANGE_FROM, RANGE_TO)
-                        .andExpect(status().isOk())))
-                .isEqualTo(expected);
-    }
-
     private ResultActions monthly(
             String accessToken, String recordKey, YearMonth from, YearMonth to) throws Exception {
 
         return mockMvc.perform(
                 get("/api/v1/health-data/monthly")
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken)
-                        .param("recordKey", recordKey)
+                        .param("recordkey", recordKey)
                         .param("from", from.toString())
                         .param("to", to.toString()));
     }
@@ -523,7 +432,7 @@ class HealthAggregationIntegrationTest extends HealthIntegrationSupport {
         return mockMvc.perform(
                 get("/api/v1/health-data/daily")
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken)
-                        .param("recordKey", recordKey)
+                        .param("recordkey", recordKey)
                         .param("from", from.toString())
                         .param("to", to.toString()));
     }

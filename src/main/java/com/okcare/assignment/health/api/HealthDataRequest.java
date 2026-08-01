@@ -14,14 +14,13 @@ import java.util.Locale;
  * 건강활동 데이터 저장 요청.
  *
  * <p>공급자 JSON 구조와 {@code recordkey}, {@code vender} 필드명을 그대로 수용.
- * 저장 응답은 {@code recordKey} 사용.
  *
  * <p>입력 길이는 저장 컬럼과 일치.
  * 저장하지 않는 {@code data.memo}와 {@code source.type}은 받지 않음.
  */
 public record HealthDataRequest(
         @NotBlank(message = "recordkey는 필수입니다.")
-        @Size(min = 36, max = 36, message = "recordkey는 36자여야 합니다.")
+        @Size(max = 255, message = "recordkey는 255자를 넘을 수 없습니다.")
         String recordkey,
 
         @NotBlank(message = "type은 필수입니다.")

@@ -4,6 +4,7 @@ import com.okcare.assignment.config.AppProperties;
 import com.okcare.assignment.health.application.HealthAggregationService;
 import com.okcare.assignment.health.application.HealthDataService;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Size;
 import java.time.LocalDate;
 import java.time.YearMonth;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -50,8 +51,13 @@ public class HealthDataController {
     @GetMapping("/daily")
     public DailyAggregationResponse daily(
             @AuthenticationPrincipal Long memberId,
-            @RequestParam String recordKey,
+
+            @Size(max = 255, message = "recordkey는 255자를 넘을 수 없습니다.")
+            @RequestParam(name = "recordkey")
+            String recordKey,
+
             @RequestParam LocalDate from,
+
             @RequestParam LocalDate to
     ) {
         return DailyAggregationResponse.of(
@@ -63,8 +69,13 @@ public class HealthDataController {
     @GetMapping("/monthly")
     public MonthlyAggregationResponse monthly(
             @AuthenticationPrincipal Long memberId,
-            @RequestParam String recordKey,
+
+            @Size(max = 255, message = "recordkey는 255자를 넘을 수 없습니다.")
+            @RequestParam(name = "recordkey")
+            String recordKey,
+
             @RequestParam YearMonth from,
+
             @RequestParam YearMonth to
     ) {
         return MonthlyAggregationResponse.of(

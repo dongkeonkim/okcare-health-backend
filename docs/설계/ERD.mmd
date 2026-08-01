@@ -15,7 +15,7 @@ erDiagram
     health_connections {
         bigint id PK "건강 데이터 연결 식별자"
         bigint member_id FK "연결을 소유한 회원"
-        char(36) record_key UK "공급자가 전달한 사용자 구분 키(recordkey)"
+        varchar(255) record_key UK "공급자가 전달한 사용자 구분 키(recordkey)"
         varchar(64) source_name "공급자 앱 이름"
         varchar(64) product_name "단말 제품명"
         varchar(64) vendor_name "제조사명"

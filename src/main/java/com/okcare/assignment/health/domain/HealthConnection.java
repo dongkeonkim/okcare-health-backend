@@ -28,8 +28,7 @@ public class HealthConnection {
     @Column(name = "member_id", nullable = false)
     private Long memberId;
 
-    // DDL이 CHAR(36). 이유는 HealthActivityRecord의 payload_hash와 같음.
-    @Column(name = "record_key", nullable = false, length = 36, columnDefinition = "char(36)")
+    @Column(name = "record_key", nullable = false, length = 255, columnDefinition = "varchar(255)")
     private String recordKey;
 
     @Column(name = "source_name", nullable = false, length = 64)

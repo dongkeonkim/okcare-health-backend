@@ -55,7 +55,7 @@ class FlywayMigrationTest {
                         """,
                         String.class);
 
-        assertThat(applied).containsExactly("1", "2");
+        assertThat(applied).containsExactly("1", "2", "3");
     }
 
     @Test
@@ -130,6 +130,22 @@ class FlywayMigrationTest {
     }
 
     @Test
+    @DisplayName("recordkey 컬럼에 대소문자 구분 콜레이션을 적용한다")
+    void usesCaseSensitiveRecordKeyCollation() {
+        String collation =
+                jdbc.queryForObject(
+                        """
+                        SELECT collation_name FROM information_schema.columns
+                        WHERE table_schema = DATABASE()
+                          AND table_name = 'health_connections'
+                          AND column_name = 'record_key'
+                        """,
+                        String.class);
+
+        assertThat(collation).isEqualTo("utf8mb4_0900_as_cs");
+    }
+
+    @Test
     @DisplayName("소유권과 집계 조회 인덱스를 생성한다")
     void createsLookupIndexes() {
         assertThat(indexColumns("health_connections", "ix_health_connections_member_record_key"))
@@ -156,7 +172,7 @@ class FlywayMigrationTest {
         assertThat(columnType("health_activity_records", "period_start_utc"))
                 .isEqualTo("datetime(6)");
         assertThat(columnType("health_activity_records", "activity_date")).isEqualTo("date");
-        assertThat(columnType("health_connections", "record_key")).isEqualTo("char(36)");
+        assertThat(columnType("health_connections", "record_key")).isEqualTo("varchar(255)");
         assertThat(columnType("health_activity_records", "payload_hash")).isEqualTo("char(64)");
     }
 
